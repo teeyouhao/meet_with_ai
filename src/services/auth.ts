@@ -14,7 +14,7 @@ export interface AuthResult {
   error: string | null;
 }
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
+const API_BASE = (import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:5000' : '')).replace(/\/$/, '');
 const TOKEN_KEY = 'meetwithai_auth_token';
 const USER_KEY = 'meetwithai_auth_user';
 

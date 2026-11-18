@@ -99,7 +99,7 @@ function AppShell() {
       />
 
       {/* Main Content Area with Bottom Dock Safe Padding */}
-      <main style={{ flex: 1, paddingBottom: '96px', width: '100%' }}>
+      <main style={{ flex: 1, paddingBottom: 'calc(105px + env(safe-area-inset-bottom, 0px))', width: '100%' }}>
         {activeTab === 'studio' && (
           <>
             {currentSummaryResult ? (

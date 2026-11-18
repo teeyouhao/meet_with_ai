@@ -47,17 +47,20 @@ export const IOSHeader: React.FC<IOSHeaderProps> = ({
   }).format(new Date());
 
   return (
-    <header style={{
-      position: 'sticky',
-      top: 0,
-      zIndex: 900,
-      background: 'var(--glass-surface)',
-      backdropFilter: 'blur(30px) saturate(190%)',
-      WebkitBackdropFilter: 'blur(30px) saturate(190%)',
-      borderBottom: '1px solid var(--glass-border)',
-      padding: '10px 20px',
-      transition: 'background 0.3s ease, border-color 0.3s ease'
-    }}>
+    <header
+      className="ios-header-bar"
+      style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 900,
+        background: 'var(--glass-surface)',
+        backdropFilter: 'blur(30px) saturate(190%)',
+        WebkitBackdropFilter: 'blur(30px) saturate(190%)',
+        borderBottom: '1px solid var(--glass-border)',
+        padding: 'calc(10px + env(safe-area-inset-top, 0px)) 16px 10px',
+        transition: 'background 0.3s ease, border-color 0.3s ease'
+      }}
+    >
       <div style={{
         maxWidth: '1080px',
         margin: '0 auto',
@@ -114,7 +117,7 @@ export const IOSHeader: React.FC<IOSHeaderProps> = ({
                 MeetWith<span className="gradient-text">AI</span>
               </span>
             </div>
-            <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', fontWeight: 500 }}>
+            <span className="header-date-subtitle" style={{ fontSize: '10.5px', color: 'var(--text-muted)', fontWeight: 500 }}>
               {todayStr} · {title}
             </span>
           </div>
@@ -140,7 +143,7 @@ export const IOSHeader: React.FC<IOSHeaderProps> = ({
         </div>
 
         {/* Right: Language Switcher, Theme Toggle & Profile Menu */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="ios-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {/* iOS Multilingual Switcher Widget */}
           <button
             id="header-language-toggle"
@@ -229,15 +232,18 @@ export const IOSHeader: React.FC<IOSHeaderProps> = ({
                   {initials || <User size={12} />}
                 </div>
               )}
-              <span style={{
-                fontSize: '12px',
-                fontWeight: 600,
-                color: 'var(--text-primary)',
-                maxWidth: '80px',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap'
-              }}>
+              <span
+                className="header-user-name"
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  maxWidth: '80px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}
+              >
                 {displayName}
               </span>
               <ChevronDown

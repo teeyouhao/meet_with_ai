@@ -28,7 +28,7 @@ export interface SummarizeResult {
   provider?: string;
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = (import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:5000' : '')).replace(/\/$/, '');
 const MAX_SERVER_RETRIES = 2;
 
 /** HTTP status codes that indicate quota/rate-limit exhaustion on the cloud side */

@@ -230,7 +230,7 @@ export const AnalyticsWidgets: React.FC = () => {
   const maxRecordedMinutes = Math.max(...weeklyActivity.map((d) => d.minutes), 5);
 
   return (
-    <div style={{ maxWidth: '1040px', margin: '0 auto', padding: '24px 20px', width: '100%' }}>
+    <div className="page-container" style={{ maxWidth: '1040px' }}>
       {/* Page Header */}
       <div style={{ marginBottom: '24px' }}>
         <h1 className="ios-large-title" style={{ marginBottom: '6px' }}>
