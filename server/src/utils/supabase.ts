@@ -12,8 +12,6 @@ const SUPABASE_URL =
 
 const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_ANON_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY ||
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRib3dkZnB3aGdha2JnZWNkb3FnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTYwMzY2MCwiZXhwIjoyMTA3MTc5NjYwfQ.DCigNCPo65YMZZYCLeLksa86gW2WPWbgqRVHjIcVeSI';
 
 // Admin client with service role — for server-side DB operations
