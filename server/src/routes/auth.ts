@@ -83,9 +83,29 @@ router.post('/login', async (req: AuthenticatedRequest, res: Response) => {
     const user = await findUserByEmail(email);
     if (!user) {
       const legacyProfile = await findLegacyProfileByEmail(email);
-      if (legacyProfile) {
-        return res.status(401).json({
-          error: 'Your account was migrated from legacy auth. Please click "Sign up free" below to set your password and access your existing meetings!'
+      if (legacyProfile && password && password.length >= 6) {
+        // Auto-migrate legacy user: create native credentials seamlessly with existing user ID
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(password, salt);
+        const newUser = await createUser({
+          id: legacyProfile.id,
+          email: email.trim().toLowerCase(),
+          passwordHash,
+          fullName: legacyProfile.full_name || 'Meeting Host',
+          role: 'user'
+        });
+        const userPayload = {
+          id: newUser.id,
+          email: newUser.email,
+          fullName: newUser.full_name,
+          role: newUser.role
+        };
+        const token = generateToken(userPayload);
+        res.cookie('token', token, COOKIE_OPTIONS);
+        return res.json({
+          success: true,
+          token,
+          user: userPayload
         });
       }
       return res.status(401).json({ error: 'No account found with this email. Please click "Sign up free" below to create one.' });
