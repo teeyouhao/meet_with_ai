@@ -3,8 +3,10 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
-    { "source": "/auth/(.*)", "destination": "/api/index" },
-    { "source": "/((?!api/|auth/).*)", "destination": "/index.html" }
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/api", "destination": "/api" },
+    { "source": "/auth/(.*)", "destination": "/api" },
+    { "source": "/auth", "destination": "/api" },
+    { "source": "/((?!api|auth).*)", "destination": "/index.html" }
   ]
 }

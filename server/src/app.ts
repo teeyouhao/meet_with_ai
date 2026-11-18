@@ -25,6 +25,7 @@ app.use(cors({
 // Route Mounts
 app.use('/auth', authRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api', authRoutes);
 app.use('/api/meetings', meetingsRoutes);
 app.use('/api/summarize', summarizeRoutes);
 app.use('/api/transcribe', transcribeRoutes);

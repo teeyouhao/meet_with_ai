@@ -149,7 +149,7 @@ router.post('/chat', optionalAuth, async (req: AuthenticatedRequest, res: Respon
       }
     }
 
-    const groqKey = process.env.GROQ_API_KEY;
+    const groqKey = process.env.GROQ_API_KEY || '';
     if (!groqKey) {
       return res.json({
         reply: "Groq AI is ready, but GROQ_API_KEY is not configured on the server.",

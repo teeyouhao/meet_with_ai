@@ -59,14 +59,26 @@ export async function signUpWithEmail(
   fullName: string
 ): Promise<AuthResult> {
   try {
-    const res = await fetch(`${API_BASE}/auth/register`, {
+    const res = await fetch(`${API_BASE}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ email, password, fullName })
     });
 
-    const data = await res.json();
+    const text = await res.text();
+    let data: any = {};
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return {
+        user: null,
+        error: res.status >= 500
+          ? 'Server is starting up or temporarily unavailable. Please retry in a few seconds.'
+          : 'Unexpected server response during registration.'
+      };
+    }
+
     if (!res.ok) {
       return { user: null, error: data.error || 'Registration failed' };
     }
@@ -93,14 +105,26 @@ export async function signInWithEmail(
   password: string
 ): Promise<AuthResult> {
   try {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ email, password })
     });
 
-    const data = await res.json();
+    const text = await res.text();
+    let data: any = {};
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return {
+        user: null,
+        error: res.status >= 500
+          ? 'Server is starting up or temporarily unavailable. Please retry in a few seconds.'
+          : 'Unexpected server response during sign in.'
+      };
+    }
+
     if (!res.ok) {
       return { user: null, error: data.error || 'Login failed' };
     }
@@ -124,7 +148,7 @@ export async function signInWithEmail(
 /** Native Sign out */
 export async function signOut(): Promise<void> {
   try {
-    await fetch(`${API_BASE}/auth/logout`, {
+    await fetch(`${API_BASE}/api/auth/logout`, {
       method: 'POST',
       credentials: 'include'
     });
@@ -152,14 +176,14 @@ export async function getSessionUser(): Promise<AuthUser | null> {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const res = await fetch(`${API_BASE}/auth/session`, {
+    const res = await fetch(`${API_BASE}/api/auth/session`, {
       headers,
       credentials: 'include'
     });
 
     if (res.ok) {
-      const data = await res.json();
-      if (data.authenticated && data.user) {
+      const data = await res.json().catch(() => null);
+      if (data && data.authenticated && data.user) {
         const authUser: AuthUser = {
           id: data.user.id,
           email: data.user.email,

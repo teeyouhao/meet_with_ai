@@ -29,6 +29,20 @@ async function checkAppUsersTable(): Promise<boolean> {
   return hasAppUsersTable;
 }
 
+export async function findLegacyProfileByEmail(email: string): Promise<{ id: string; full_name?: string } | null> {
+  try {
+    const { data } = await supabaseAdmin
+      .from('profiles')
+      .select('id, full_name')
+      .ilike('email', email.trim().toLowerCase())
+      .limit(1)
+      .maybeSingle();
+    return data || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function findUserByEmail(email: string): Promise<AppUser | null> {
   const normalizedEmail = email.trim().toLowerCase();
   const useAppUsers = await checkAppUsersTable();
@@ -103,7 +117,7 @@ export async function findUserById(id: string): Promise<AppUser | null> {
       .eq('event_type', 'app_user');
 
     if (!error && data) {
-      const match = data.find((row: any) => row.actor_id === id || row.id === id);
+      const match = data.find((row: any) => row.metadata?.id === id || row.actor_id === id || row.id === id);
       if (match) {
         const meta = match.metadata || {};
         return {
@@ -129,9 +143,15 @@ export async function createUser(params: {
   passwordHash: string;
   fullName: string;
   role?: string;
+  id?: string;
 }): Promise<AppUser> {
   const normalizedEmail = params.email.trim().toLowerCase();
-  const userId = crypto.randomUUID();
+  
+  // Link to existing legacy profile ID if user was previously in Supabase auth
+  const legacyProfile = await findLegacyProfileByEmail(normalizedEmail);
+  const userId = params.id || legacyProfile?.id || crypto.randomUUID();
+  const fullName = params.fullName || legacyProfile?.full_name || '';
+  
   const now = new Date().toISOString();
   const role = params.role || 'user';
   const useAppUsers = await checkAppUsersTable();
@@ -143,7 +163,7 @@ export async function createUser(params: {
         id: userId,
         email: normalizedEmail,
         password_hash: params.passwordHash,
-        full_name: params.fullName,
+        full_name: fullName,
         role,
         created_at: now,
         updated_at: now
@@ -154,11 +174,11 @@ export async function createUser(params: {
     if (!error && data) {
       return data as AppUser;
     }
-    // If insert failed because table was just dropped or errored, proceed to fallback
+    // If insert failed, proceed to fallback
   }
 
   // Fallback storage in audit_events (actor_id set to null to avoid foreign key constraints)
-  const { data: auditRow, error: auditError } = await supabaseAdmin
+  const { error: auditError } = await supabaseAdmin
     .from('audit_events')
     .insert({
       actor_id: null,
@@ -168,7 +188,7 @@ export async function createUser(params: {
         id: userId,
         email: normalizedEmail,
         password_hash: params.passwordHash,
-        full_name: params.fullName,
+        full_name: fullName,
         role,
         created_at: now
       }
@@ -180,22 +200,11 @@ export async function createUser(params: {
     throw new Error(`Failed to create user record: ${auditError.message}`);
   }
 
-  // Also maintain profile sync if possible
-  try {
-    await supabaseAdmin.from('profiles').upsert({
-      id: userId,
-      email: normalizedEmail,
-      full_name: params.fullName
-    });
-  } catch {
-    // Non-blocking
-  }
-
   return {
     id: userId,
     email: normalizedEmail,
     password_hash: params.passwordHash,
-    full_name: params.fullName,
+    full_name: fullName,
     avatar_url: null,
     role,
     created_at: now

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import type { Response } from 'express';
-import { findUserByEmail, createUser } from '../services/userService.js';
+import { findUserByEmail, createUser, findLegacyProfileByEmail } from '../services/userService.js';
 import { generateToken } from '../utils/jwt.js';
 import { optionalAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 
@@ -82,12 +82,18 @@ router.post('/login', async (req: AuthenticatedRequest, res: Response) => {
 
     const user = await findUserByEmail(email);
     if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password.' });
+      const legacyProfile = await findLegacyProfileByEmail(email);
+      if (legacyProfile) {
+        return res.status(401).json({
+          error: 'Your account was migrated from legacy auth. Please click "Sign up free" below to set your password and access your existing meetings!'
+        });
+      }
+      return res.status(401).json({ error: 'No account found with this email. Please click "Sign up free" below to create one.' });
     }
 
     const isValid = await bcrypt.compare(password, user.password_hash);
     if (!isValid) {
-      return res.status(401).json({ error: 'Invalid email or password.' });
+      return res.status(401).json({ error: 'Incorrect password. Please try again or click "Sign up free" to reset.' });
     }
 
     const userPayload = {

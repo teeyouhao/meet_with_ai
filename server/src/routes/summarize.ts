@@ -395,8 +395,8 @@ router.post('/', optionalAuth, async (req: AuthenticatedRequest, res: Response) 
   }
 
   const meetingTitle = (title ?? 'Meeting').slice(0, 200);
-  const groqApiKey = process.env.GROQ_API_KEY;
-  const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+  const groqApiKey = process.env.GROQ_API_KEY || '';
+  const openRouterApiKey = process.env.OPENROUTER_API_KEY || '';
   const userId = req.user?.id || null;
 
   // Retrieve adaptive semantic context from past meetings
