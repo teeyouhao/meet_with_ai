@@ -3,12 +3,14 @@ import { Mail, Lock, User, Eye, EyeOff, Sparkles, ArrowRight, RefreshCw, Moon, S
 import { signInWithEmail, signUpWithEmail, sendPasswordReset } from '../services/auth';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 
 type AuthMode = 'login' | 'signup' | 'reset';
 
 export function AuthPage() {
   const { theme, toggleTheme } = useTheme();
   const { t } = useLanguage();
+  const { refreshUser } = useAuth();
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,40 +32,25 @@ export function AuthPage() {
 
     try {
       if (mode === 'login') {
-        const { error } = await signInWithEmail(email, password);
+        const { user, error } = await signInWithEmail(email, password);
         if (error) {
-          if (error.toLowerCase().includes('not confirmed')) {
-            setError('Email verification is required by Supabase. Turn OFF "Confirm email" in Supabase (Authentication > Providers > Email) to log in instantly without email verification.');
-          } else {
-            setError(error);
-          }
+          setError(error);
+        } else if (user) {
+          await refreshUser();
         }
       } else if (mode === 'signup') {
         if (!fullName.trim()) { setError('Please enter your full name.'); setIsLoading(false); return; }
         if (password.length < 8) { setError('Password must be at least 8 characters.'); setIsLoading(false); return; }
-        const { error } = await signUpWithEmail(email, password, fullName.trim());
+        const { user, error } = await signUpWithEmail(email, password, fullName.trim());
         if (error) {
-          if (error.toLowerCase().includes('rate limit')) {
-            setError('Supabase email rate limit reached. Turn OFF "Confirm email" in Supabase (Authentication > Providers > Email) to create accounts without emails.');
-          } else {
-            setError(error);
-          }
-        } else {
-          // Immediately sign in so no verification email is required
-          const login = await signInWithEmail(email, password);
-          if (login.error) {
-            if (login.error.toLowerCase().includes('not confirmed')) {
-              setError('Account created! Turn OFF "Confirm email" in Supabase (Authentication > Providers > Email) to sign in without email confirmation.');
-            } else {
-              setSuccess('Account created! You can now sign in.');
-              setMode('login');
-            }
-          }
+          setError(error);
+        } else if (user) {
+          await refreshUser();
         }
       } else if (mode === 'reset') {
         const { error } = await sendPasswordReset(email);
         if (error) setError(error);
-        else setSuccess('Password reset email sent — check your inbox.');
+        else setSuccess('If an account exists, instructions have been dispatched.');
       }
     } finally {
       setIsLoading(false);

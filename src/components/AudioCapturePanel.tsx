@@ -351,7 +351,7 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
           if (pct !== undefined) setProgressPercent(pct);
           if (text.toLowerCase().includes('local ai') || text.toLowerCase().includes('webgpu')) {
             setActiveTier('local-webgpu');
-          } else if (text.toLowerCase().includes('cloud')) {
+          } else if (text.toLowerCase().includes('cloud') || text.toLowerCase().includes('groq')) {
             setActiveTier('cloud');
           }
         },

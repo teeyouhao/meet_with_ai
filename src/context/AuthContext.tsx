@@ -1,39 +1,52 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import type { ReactNode } from 'react';
-import { supabase } from '../services/supabase';
-import { signOut } from '../services/auth';
-import type { AuthUser } from '../services/auth';
+import { getSessionUser, signOut, type AuthUser } from '../services/auth';
 
 interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+  setUser: (user: AuthUser | null) => void;
 }
 
 const AuthContext = createContext<AuthContextValue>({
   user: null,
   isLoading: true,
-  logout: async () => {}
+  logout: async () => {},
+  refreshUser: async () => {},
+  setUser: () => {}
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const refreshUser = async () => {
+    try {
+      const currentUser = await getSessionUser();
+      setUser(currentUser);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    // Hydrate from existing session
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user);
-      setIsLoading(false);
-    });
+    refreshUser();
 
-    // Listen to auth state changes (login, logout, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      setIsLoading(false);
-    });
+    // Listen to storage events for multi-tab sync
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'meetwithai_auth_user') {
+        try {
+          setUser(e.newValue ? JSON.parse(e.newValue) : null);
+        } catch {
+          setUser(null);
+        }
+      }
+    };
 
-    return () => subscription.unsubscribe();
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const logout = async () => {
@@ -42,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, logout, refreshUser, setUser }}>
       {children}
     </AuthContext.Provider>
   );

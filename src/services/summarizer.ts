@@ -6,6 +6,7 @@ import {
   type SummaryData
 } from './webllm';
 import { supabase } from './supabase';
+import { getStoredUser } from './auth';
 import { getGroqApiKey } from './transcription';
 
 export interface SummarizeOptions {
@@ -21,7 +22,7 @@ export interface SummarizeOptions {
 
 export interface SummarizeResult {
   summary: SummaryData;
-  /** cloud = Gemini / Groq / OpenRouter succeeded; local = fell back to WebGPU; heuristic = offline fallback */
+  /** cloud = Groq / OpenRouter succeeded; local = fell back to WebGPU; heuristic = offline fallback */
   tierUsed: 'cloud' | 'local-webgpu' | 'heuristic';
   audioUrl?: string;
   provider?: string;
@@ -33,30 +34,11 @@ const MAX_SERVER_RETRIES = 2;
 /** HTTP status codes that indicate quota/rate-limit exhaustion on the cloud side */
 const QUOTA_STATUSES = new Set([429, 503]);
 
-export function getGeminiApiKey(): string {
-  if (typeof window !== 'undefined') {
-    const stored = localStorage.getItem('gemini_api_key');
-    if (stored?.trim()) return stored.trim();
-  }
-  const env = import.meta.env as Record<string, string | undefined>;
-  return (env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY || '').trim();
-}
-
-export function setGeminiApiKey(key: string): void {
-  if (typeof window !== 'undefined') {
-    if (key.trim()) {
-      localStorage.setItem('gemini_api_key', key.trim());
-    } else {
-      localStorage.removeItem('gemini_api_key');
-    }
-  }
-}
-
 // ── Upload audio to Supabase Storage (non-blocking) ──────────────────────────
 
 async function uploadAudio(blob: Blob, title: string): Promise<string | undefined> {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = getStoredUser();
     const uid = user?.id ?? 'anon';
     const ts = Date.now();
     const ext = blob.type.includes('webm') ? 'webm' : 'mp4';
@@ -80,15 +62,34 @@ async function uploadAudio(blob: Blob, title: string): Promise<string | undefine
 
 export function isChineseTranscript(text: string): boolean {
   if (!text) return false;
-  const hanMatch = text.match(/[\u4e00-\u9fa5]/g);
-  const hanCount = hanMatch ? hanMatch.length : 0;
-  const nonSpaceLength = text.replace(/\s+/g, '').length;
-  return hanCount >= 5 || (nonSpaceLength > 0 && hanCount / nonSpaceLength >= 0.10);
+  const hanChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+  const latinChars = (text.match(/[a-zA-Z]/g) || []).length;
+  if (hanChars === 0) return false;
+  if (latinChars === 0) return hanChars >= 5;
+  return hanChars / (hanChars + latinChars) >= 0.35 && hanChars >= 8;
 }
 
 // ── Strict Prompt Builder ───────────────────────────────────────────────────
 
-function buildExecutivePrompt(transcript: string, title: string): string {
+export function optimizeTranscriptForLlm(transcript: string, maxChars = 20000): string {
+  if (!transcript || transcript.length <= maxChars) {
+    return transcript;
+  }
+  // Smart windowing: Header/Agenda (35%), Core Discussion (20%), Final Decisions & Actions (45%)
+  const headLen = Math.floor(maxChars * 0.35);
+  const midLen = Math.floor(maxChars * 0.20);
+  const tailLen = Math.floor(maxChars * 0.45);
+
+  const head = transcript.slice(0, headLen);
+  const midStart = Math.floor((transcript.length - midLen) / 2);
+  const mid = transcript.slice(midStart, midStart + midLen);
+  const tail = transcript.slice(transcript.length - tailLen);
+
+  return `${head}\n\n[... middle discussion section summarized ...]\n\n${mid}\n\n[... discussion continues ...]\n\n${tail}`;
+}
+
+function buildExecutivePrompt(rawTranscript: string, title: string, maxChars = 20000): string {
+  const transcript = optimizeTranscriptForLlm(rawTranscript, maxChars);
   const isZh = isChineseTranscript(transcript);
 
   const languageDirective = isZh
@@ -136,118 +137,124 @@ ${transcript.slice(0, 100_000)}
 """`;
 }
 
-function validateSummaryData(parsed: Partial<SummaryData>, isZh: boolean = false): SummaryData {
-  const key_points = Array.isArray(parsed.key_points) && parsed.key_points.length > 0
-    ? parsed.key_points.filter((k) => typeof k === 'string' && k.trim().length > 0)
-    : [];
+// ── Robust JSON Parser from LLM Output ──────────────────────────────────────
 
-  // Super accurate: never fabricate decisions if none exist
-  const decisions = Array.isArray(parsed.decisions) && parsed.decisions.length > 0
-    ? parsed.decisions.filter((d) => typeof d === 'string' && d.trim().length > 0)
-    : [];
+function parseJsonFromLlm(text: string): Record<string, any> {
+  const clean = text
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
 
+  try {
+    return JSON.parse(clean);
+  } catch {
+    const firstBrace = clean.indexOf('{');
+    const lastBrace = clean.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const extracted = clean.substring(firstBrace, lastBrace + 1);
+      return JSON.parse(extracted);
+    }
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (match) {
+      return JSON.parse(match[0]);
+    }
+    throw new Error('Failed to parse valid JSON from AI response: ' + clean.slice(0, 160));
+  }
+}
+
+// ── Robust Summary Data Normalizer ──────────────────────────────────────────
+
+function validateSummaryData(parsed: Record<string, any>, isZh: boolean = false): SummaryData {
   const defaultAssignee = isZh ? '未指定' : 'Unassigned';
 
-  const action_items = Array.isArray(parsed.action_items) && parsed.action_items.length > 0
-    ? parsed.action_items
-        .filter((item) => item && typeof item.task === 'string' && item.task.trim().length > 0)
-        .map((item) => {
-          let assignee = (item.assignee || '').trim();
-          // Remove filler grammatical words wrongly parsed as names
-          if (/^(the|meanwhile|then|and|also|a|an|in|on|at|by|for|with)$/i.test(assignee)) {
-            assignee = defaultAssignee;
-          }
-          return {
-            task: item.task.trim(),
-            assignee: assignee || defaultAssignee,
-            due_date: (item.due_date || '').trim() || undefined
-          };
-        })
-    : [];
+  // 1. Overview
+  const overview = typeof parsed.overview === 'string' && parsed.overview.trim().length > 0
+    ? parsed.overview.trim()
+    : (isZh ? '已完成会议记录并提炼核心纪要。' : 'Summary synthesized from meeting transcript.');
+
+  // 2. Key Points
+  let key_points: string[] = [];
+  if (Array.isArray(parsed.key_points)) {
+    key_points = parsed.key_points
+      .map((k: unknown) => (typeof k === 'string' ? k.trim() : ''))
+      .filter(Boolean);
+  } else if (typeof parsed.key_points === 'string') {
+    key_points = parsed.key_points
+      .split('\n')
+      .map((s: string) => s.replace(/^[-*•\d.]\s*/, '').trim())
+      .filter(Boolean);
+  }
+
+  // 3. Decisions
+  let decisions: string[] = [];
+  if (Array.isArray(parsed.decisions)) {
+    decisions = parsed.decisions
+      .map((d: unknown) => (typeof d === 'string' ? d.trim() : ''))
+      .filter(Boolean);
+  } else if (typeof parsed.decisions === 'string') {
+    decisions = parsed.decisions
+      .split('\n')
+      .map((s: string) => s.replace(/^[-*•\d.]\s*/, '').trim())
+      .filter(Boolean);
+  }
+
+  // 4. Action Items (Handles strings, tasks, descriptions, person, owner, deadlines)
+  const action_items: Array<{ task: string; assignee: string; due_date?: string }> = [];
+  if (Array.isArray(parsed.action_items)) {
+    for (const item of parsed.action_items) {
+      if (!item) continue;
+      if (typeof item === 'string') {
+        const trimmed = item.replace(/^[-*•\d.]\s*/, '').trim();
+        if (trimmed) {
+          action_items.push({
+            task: trimmed,
+            assignee: defaultAssignee
+          });
+        }
+        continue;
+      }
+      if (typeof item === 'object') {
+        const rawTask = (item.task || item.description || item.action || item.item || item.deliverable || item.todo || '').toString().trim();
+        if (!rawTask) continue;
+
+        let rawAssignee = (item.assignee || item.owner || item.person || item.assigned_to || item.who || '').toString().trim();
+        if (!rawAssignee || /^(the|meanwhile|then|and|also|a|an|in|on|at|by|for|with)$/i.test(rawAssignee)) {
+          rawAssignee = defaultAssignee;
+        }
+
+        const rawDueDate = (item.due_date || item.due || item.deadline || item.target_date || item.target || '').toString().trim();
+        action_items.push({
+          task: rawTask,
+          assignee: rawAssignee,
+          due_date: rawDueDate || undefined
+        });
+      }
+    }
+  }
 
   return {
-    overview: parsed.overview?.trim() || (isZh ? '已完成会议记录并提炼核心纪要。' : 'Summary synthesized from meeting transcript.'),
+    overview,
     key_points,
     decisions,
     action_items
   };
 }
 
-// ── Google Gemini AI Direct Call ─────────────────────────────────────────────
-
-async function callGeminiSummarize(
-  apiKey: string,
-  transcript: string,
-  title: string
-): Promise<SummaryData> {
-  const models = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash'];
-  const prompt = buildExecutivePrompt(transcript, title);
-  let lastError = '';
-
-  for (const model of models) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: prompt }]
-            }
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            responseMimeType: 'application/json'
-          }
-        })
-      });
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        lastError = `Gemini ${model} HTTP ${res.status}: ${errText}`;
-        continue;
-      }
-
-      const data = await res.json();
-      const rawText: string = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-      const clean = rawText
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/\s*```\s*$/i, '')
-        .trim();
-
-      const isZh = isChineseTranscript(transcript);
-      const parsed = JSON.parse(clean) as Partial<SummaryData>;
-      return validateSummaryData(parsed, isZh);
-    } catch (err) {
-      clearTimeout(timeoutId);
-      lastError = err instanceof Error ? err.message : String(err);
-    }
-  }
-
-  throw new Error(`Gemini AI summarization failed: ${lastError}`);
-}
-
-// ── Groq Direct Call (openai/gpt-oss-120b, qwen/qwen3.8-27b) ────────────────
+// ── Groq Direct Call (openai/gpt-oss-120b, qwen/qwen3.8-27b, openai/gpt-oss-20b) ───
 
 async function callGroqSummarize(
   apiKey: string,
   transcript: string,
   title: string
-): Promise<SummaryData> {
+): Promise<{ summary: SummaryData; modelUsed: string }> {
   const models = ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b'];
-  const prompt = buildExecutivePrompt(transcript, title);
+  let maxChars = 20000;
   let lastError = '';
 
   for (const model of models) {
+    const prompt = buildExecutivePrompt(transcript, title, maxChars);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const timeoutId = setTimeout(() => controller.abort(), 35000);
 
     try {
       const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -278,27 +285,30 @@ async function callGroqSummarize(
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
         lastError = `Groq ${model} HTTP ${res.status}: ${errText}`;
+        console.warn(`[Groq] Model ${model} returned error:`, lastError);
+        if (res.status === 413 || res.status === 429) {
+          maxChars = Math.max(8000, Math.floor(maxChars * 0.65));
+        }
         continue;
       }
 
       const data = await res.json();
-      const rawContent = data.choices?.[0]?.message?.content?.trim();
+      const rawContent: string | undefined = data.choices?.[0]?.message?.content?.trim();
       if (!rawContent) {
-        lastError = 'Empty response from Groq';
+        lastError = `Empty response from Groq model ${model}`;
         continue;
       }
 
-      const clean = rawContent
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/\s*```\s*$/i, '')
-        .trim();
-
       const isZh = isChineseTranscript(transcript);
-      const parsed = JSON.parse(clean) as Partial<SummaryData>;
-      return validateSummaryData(parsed, isZh);
+      const parsed = parseJsonFromLlm(rawContent);
+      return {
+        summary: validateSummaryData(parsed, isZh),
+        modelUsed: model
+      };
     } catch (err) {
       clearTimeout(timeoutId);
       lastError = err instanceof Error ? err.message : String(err);
+      console.warn(`[Groq] Model ${model} failed:`, lastError);
     }
   }
 
@@ -381,12 +391,27 @@ async function callLocalSummarize(
 // ── Client-side Failsafe Heuristic ───────────────────────────────────────────
 
 function clientHeuristicSummarize(transcript: string, title?: string): SummaryData {
-  const isZh = isChineseTranscript(transcript);
+  // Strip markdown headers, metadata, and bullet artifacts from transcript
+  const cleanedTranscript = transcript
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) return false;
+      if (/^#{1,6}\s+/i.test(line)) return false;
+      if (/^generated via/i.test(line)) return false;
+      if (/^-\s*#{1,6}\s+/i.test(line)) return false;
+      if (/^-\s*generated via/i.test(line)) return false;
+      return true;
+    })
+    .map((line) => line.replace(/^[-*•]\s+(\[[ xX]\]\s+)?/, '').trim())
+    .join(' ');
+
+  const isZh = isChineseTranscript(cleanedTranscript || transcript);
   const splitRegex = isZh ? /(?<=[。！？\n])\s*/ : /(?<=[.!?])\s+/;
-  const sentences = transcript
+  const sentences = (cleanedTranscript || transcript)
     .split(splitRegex)
     .map((s) => s.trim())
-    .filter((s) => s.length > (isZh ? 8 : 25));
+    .filter((s) => s.length > (isZh ? 8 : 20));
 
   const key_points = sentences.slice(0, 6);
 
@@ -420,6 +445,15 @@ export async function summarizeMeeting(options: SummarizeOptions): Promise<Summa
 
   const progress = (text: string, pct?: number) => onProgress?.(text, pct);
 
+  // Clean away any deprecated Gemini keys from localStorage
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('gemini_api_key');
+    } catch {
+      // ignore
+    }
+  }
+
   // Upload audio in parallel (fire-and-forget)
   let audioUrlPromise: Promise<string | undefined> | undefined;
   if (audioBlob && audioBlob.size > 0) {
@@ -427,45 +461,26 @@ export async function summarizeMeeting(options: SummarizeOptions): Promise<Summa
   }
 
   const groqApiKey = getGroqApiKey();
-  const geminiApiKey = getGeminiApiKey();
 
-  // ── Tier 1A: Groq AI (GPT-OSS-120B / Qwen 27B - Ultra Fast <1s) ─────────────
+  // ── Tier 1: Groq AI (GPT-OSS-120B / Qwen 27B / GPT-OSS-20B - Ultra Fast) ─────
   if (groqApiKey) {
     try {
       progress('Analyzing transcript with Groq AI…', 35);
-      const summary = await callGroqSummarize(groqApiKey, transcript, title);
-      progress('Executive summary generated ✓ (Groq AI)', 100);
+      const { summary, modelUsed } = await callGroqSummarize(groqApiKey, transcript, title);
+      progress(`Executive summary generated ✓ (Groq ${modelUsed})`, 100);
       const audioUrl = await audioUrlPromise;
       return {
         summary,
         tierUsed: 'cloud',
         audioUrl,
-        provider: 'groq/gpt-oss-120b'
+        provider: `groq/${modelUsed}`
       };
     } catch (groqErr) {
-      console.warn('[Groq AI failed, attempting Gemini fallback]:', groqErr);
+      console.warn('[Groq AI encountered an issue, attempting backup tiers]:', groqErr);
     }
   }
 
-  // ── Tier 1B: Google Gemini Flash AI ──────────────────────────────────────────
-  if (geminiApiKey) {
-    try {
-      progress('Analyzing transcript with Google Gemini AI…', 50);
-      const summary = await callGeminiSummarize(geminiApiKey, transcript, title);
-      progress('Executive summary generated ✓ (Gemini Flash)', 100);
-      const audioUrl = await audioUrlPromise;
-      return {
-        summary,
-        tierUsed: 'cloud',
-        audioUrl,
-        provider: 'gemini/gemini-flash'
-      };
-    } catch (geminiErr) {
-      console.warn('[Gemini AI failed, attempting backend fallback]:', geminiErr);
-    }
-  }
-
-  // ── Tier 1.5: Express Server (if running local backend) ─────────────────────
+  // ── Tier 1.5: Express Server (if running local backend with OpenRouter/Groq) ──
   try {
     progress('Sending transcript to cloud backend…', 55);
     const { summary, provider, hitQuota } = await callCloudSummarize(transcript, title);

@@ -1,26 +1,35 @@
 import type { Request, Response, NextFunction } from 'express';
-import { createReqSupabaseClient } from '../utils/supabase.js';
+import { verifyToken, type TokenPayload } from '../utils/jwt.js';
 
 export interface AuthenticatedRequest extends Request {
-  user?: {
-    id: string;
-    email?: string;
-    user_metadata?: Record<string, unknown>;
-  };
+  user?: TokenPayload;
 }
 
-export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  try {
-    const supabase = createReqSupabaseClient(req, res);
-    const { data: { user }, error } = await supabase.auth.getUser();
+export function optionalAuth(req: AuthenticatedRequest, _res: Response, next: NextFunction) {
+  let token: string | undefined;
 
-    if (error || !user) {
-      return res.status(401).json({ error: 'Unauthorized: Session missing or invalid' });
-    }
-
-    req.user = user;
-    next();
-  } catch {
-    return res.status(500).json({ error: 'Authentication verification failure' });
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7);
+  } else if (req.cookies && (req.cookies.token || req.cookies.meetwithai_token)) {
+    token = req.cookies.token || req.cookies.meetwithai_token;
   }
+
+  if (token) {
+    const payload = verifyToken(token);
+    if (payload) {
+      req.user = payload;
+    }
+  }
+
+  next();
+}
+
+export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  optionalAuth(req, res, () => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required. Please sign in.' });
+    }
+    next();
+  });
 }

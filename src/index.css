@@ -192,14 +192,61 @@ button:disabled {
 
 @media (max-width: 640px) {
   html { font-size: 14px; }
-  .page-container { padding: 16px 14px; }
+  .page-container {
+    padding: 16px 14px;
+    padding-bottom: calc(115px + env(safe-area-inset-bottom, 0px)) !important;
+  }
   .ios-dock-container { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); padding: 0 8px; }
   .ios-dock { width: 100%; justify-content: space-between; gap: 2px; padding: 5px; }
-  .ios-dock-tab { min-width: 0; flex: 1; padding: 8px 6px; }
+  .ios-dock-tab { min-width: 0; flex: 1; padding: 8px 4px; }
   .capture-actions, .vault-controls, .summary-topbar { width: 100%; }
   .vault-controls { flex-wrap: wrap; }
   .vault-controls > div { flex: 1 1 220px; }
   .vault-controls input { width: 100% !important; }
+
+  /* Mobile Dashboard Analytics */
+  .insight-metrics-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+  .insight-metrics-card {
+    padding: 14px !important;
+  }
+  .insight-weekly-bars {
+    overflow-x: auto !important;
+    justify-content: flex-start !important;
+    padding-bottom: 8px !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .insight-weekly-bar-item {
+    min-width: 40px !important;
+    flex-shrink: 0 !important;
+  }
+  .insight-task-form {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+  .insight-task-form input,
+  .insight-task-form button {
+    width: 100% !important;
+  }
+
+  /* Responsive Action Item Cards for Mobile */
+  .insight-table-container {
+    display: none !important;
+  }
+  .insight-cards-mobile {
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 14px;
+  }
+}
+
+@media (min-width: 641px) {
+  .insight-cards-mobile {
+    display: none !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

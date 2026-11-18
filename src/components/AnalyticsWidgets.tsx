@@ -10,7 +10,11 @@ import {
   AlertCircle,
   Calendar,
   User,
-  Search
+  Search,
+  Bell,
+  Sparkles,
+  Brain,
+  ShieldAlert
 } from 'lucide-react';
 import {
   fetchMeetings,
@@ -21,15 +25,30 @@ import {
   type MeetingRecord,
   type InsightTaskRecord
 } from '../services/supabase';
+import { fetchDeadlineAlerts, requestNotificationPermission, type DeadlineAlert } from '../services/alerts';
+import { searchSemanticMemory, indexAllMeetings, type SemanticMemoryMatch } from '../services/memory';
 import { useLanguage } from '../context/LanguageContext';
+import { AiChatBox } from './AiChatBox';
 
 export const AnalyticsWidgets: React.FC = () => {
   const { t, language } = useLanguage();
   const [meetings, setMeetings] = useState<MeetingRecord[]>([]);
   const [tasks, setTasks] = useState<InsightTaskRecord[]>([]);
+  const [alerts, setAlerts] = useState<DeadlineAlert[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [notificationsGranted, setNotificationsGranted] = useState(
+    typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
+  );
+
+  // Vector memory search state
+  const [memoryQuery, setMemoryQuery] = useState('');
+  const [memoryResults, setMemoryResults] = useState<SemanticMemoryMatch[]>([]);
+  const [isSearchingMemory, setIsSearchingMemory] = useState(false);
+  const [hasSearchedMemory, setHasSearchedMemory] = useState(false);
+  const [isIndexingMemory, setIsIndexingMemory] = useState(false);
+  const [memoryIndexMessage, setMemoryIndexMessage] = useState<string | null>(null);
 
   // Form input state
   const [newTaskText, setNewTaskText] = useState('');
@@ -42,11 +61,12 @@ export const AnalyticsWidgets: React.FC = () => {
 
   useEffect(() => {
     let ignore = false;
-    Promise.all([fetchMeetings(), fetchInsightTasks()])
-      .then(([meetingsData, insightTasks]) => {
+    Promise.all([fetchMeetings(), fetchInsightTasks(), fetchDeadlineAlerts()])
+      .then(([meetingsData, insightTasks, alertsData]) => {
         if (ignore) return;
         setMeetings(meetingsData || []);
         setTasks(insightTasks || []);
+        setAlerts(alertsData || []);
         setIsLoading(false);
       })
       .catch((err) => {
@@ -60,6 +80,42 @@ export const AnalyticsWidgets: React.FC = () => {
       ignore = true;
     };
   }, []);
+
+  const handleRequestNotifications = async () => {
+    const granted = await requestNotificationPermission();
+    setNotificationsGranted(granted);
+  };
+
+  const handleSearchMemory = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!memoryQuery.trim()) return;
+    setIsSearchingMemory(true);
+    setHasSearchedMemory(true);
+    try {
+      const results = await searchSemanticMemory(memoryQuery.trim());
+      setMemoryResults(results);
+    } finally {
+      setIsSearchingMemory(false);
+    }
+  };
+
+  const handleReindexMemory = async () => {
+    setIsIndexingMemory(true);
+    setMemoryIndexMessage(null);
+    try {
+      const res = await indexAllMeetings();
+      setMemoryIndexMessage(
+        language === 'zh'
+          ? `已成功索引 ${res.meetingsProcessed} 场会议（共 ${res.totalChunksIndexed} 个语义向量块）`
+          : `Indexed ${res.meetingsProcessed} meetings (${res.totalChunksIndexed} vector memory chunks)`
+      );
+      setTimeout(() => setMemoryIndexMessage(null), 5000);
+    } catch {
+      setMemoryIndexMessage('Indexing failed.');
+    } finally {
+      setIsIndexingMemory(false);
+    }
+  };
 
   // Toggle action item completion
   const toggleTask = async (task: InsightTaskRecord) => {
@@ -185,15 +241,115 @@ export const AnalyticsWidgets: React.FC = () => {
         </p>
       </div>
 
+      {/* Autonomous Deadline Alert Banner (Event-Driven Worker) */}
+      {alerts.length > 0 && (
+        <div
+          className="glass-panel"
+          style={{
+            padding: '18px 20px',
+            marginBottom: '24px',
+            background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(245, 158, 11, 0.08) 100%)',
+            borderColor: 'rgba(239, 68, 68, 0.3)',
+            boxShadow: '0 8px 32px rgba(239, 68, 68, 0.12)'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                background: 'rgba(239, 68, 68, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <Bell size={18} color="#ef4444" />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                  {t.insights.deadlineAlertTitle}
+                </h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  {alerts.length} {language === 'zh' ? '个待办事项临近截止或已逾期' : 'item(s) nearing deadline or overdue'}
+                </span>
+              </div>
+            </div>
+
+            {!notificationsGranted && (
+              <button
+                type="button"
+                onClick={handleRequestNotifications}
+                className="btn-secondary"
+                style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <ShieldAlert size={14} />
+                {t.insights.enableNotifications}
+              </button>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {alerts.map((alert) => {
+              const isOverdue = alert.level === 'overdue';
+              return (
+                <div
+                  key={alert.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '10px',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    background: isOverdue ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+                    border: `1px solid ${isOverdue ? 'rgba(239, 68, 68, 0.25)' : 'rgba(245, 158, 11, 0.25)'}`
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: '220px', flex: 1 }}>
+                    <AlertCircle size={16} color={isOverdue ? '#ef4444' : '#f59e0b'} />
+                    <div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {alert.task}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        {alert.meeting_title} • {alert.assignee}
+                      </div>
+                    </div>
+                  </div>
+
+                  <span
+                    style={{
+                      fontSize: '11.5px',
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: '12px',
+                      background: isOverdue ? '#ef4444' : '#f59e0b',
+                      color: '#ffffff',
+                      letterSpacing: '0.2px'
+                    }}
+                  >
+                    {isOverdue
+                      ? t.insights.overdueHours.replace('{h}', String(Math.abs(alert.hours_remaining)))
+                      : t.insights.dueInHours.replace('{h}', String(alert.hours_remaining))}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Real Metric Cards Grid */}
-      <div style={{
+      <div className="insight-metrics-grid" style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
         gap: '14px',
         marginBottom: '24px'
       }}>
         {/* Metric 1: Sessions */}
-        <div className="glass-panel" style={{ padding: '20px' }}>
+        <div className="glass-panel insight-metrics-card" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
               {t.insights.vaultSessions}
@@ -219,7 +375,7 @@ export const AnalyticsWidgets: React.FC = () => {
         </div>
 
         {/* Metric 2: Duration */}
-        <div className="glass-panel" style={{ padding: '20px' }}>
+        <div className="glass-panel insight-metrics-card" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
               {t.insights.recordedTime}
@@ -241,7 +397,7 @@ export const AnalyticsWidgets: React.FC = () => {
         </div>
 
         {/* Metric 3: Insight Tasks */}
-        <div className="glass-panel" style={{ padding: '20px' }}>
+        <div className="glass-panel insight-metrics-card" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
               {t.insights.insightTasks}
@@ -263,7 +419,7 @@ export const AnalyticsWidgets: React.FC = () => {
         </div>
 
         {/* Metric 4: Completion Rate */}
-        <div className="glass-panel" style={{ padding: '20px' }}>
+        <div className="glass-panel insight-metrics-card" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
               {t.insights.completionRate}
@@ -305,7 +461,7 @@ export const AnalyticsWidgets: React.FC = () => {
         </div>
 
         {/* Interactive Shimmering Bar Chart */}
-        <div style={{
+        <div className="insight-weekly-bars" style={{
           display: 'flex',
           alignItems: 'flex-end',
           justifyContent: 'space-between',
@@ -323,6 +479,7 @@ export const AnalyticsWidgets: React.FC = () => {
             return (
               <div
                 key={item.day + idx}
+                className="insight-weekly-bar-item"
                 onMouseEnter={() => setHoveredDay(idx)}
                 onMouseLeave={() => setHoveredDay(null)}
                 style={{
@@ -419,6 +576,182 @@ export const AnalyticsWidgets: React.FC = () => {
           <span>{t.insights.totalSevenDay}: {weeklyActivity.reduce((acc, d) => acc + d.minutes, 0)} {t.insights.minUnit} ({weeklyActivity.reduce((acc, d) => acc + d.count, 0)} {language === 'zh' ? '场会议' : weeklyActivity.reduce((acc, d) => acc + d.count, 0) !== 1 ? 'sessions' : 'session'})</span>
         </div>
       </div>
+
+      {/* DEEP INTELLIGENCE: SEMANTIC VECTOR MEMORY (TRACK 2) */}
+      <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: '34px',
+              height: '34px',
+              borderRadius: '9px',
+              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.25) 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <Brain size={20} color="var(--accent-primary)" />
+            </div>
+            <div>
+              <h2 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, fontFamily: 'var(--font-heading)' }}>
+                {t.insights.vectorMemoryTitle}
+              </h2>
+              <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>
+                {t.insights.vectorMemorySubtitle}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleReindexMemory}
+            disabled={isIndexingMemory}
+            className="btn-secondary"
+            style={{ fontSize: '12px', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Sparkles size={14} color="var(--accent-purple)" />
+            {isIndexingMemory ? t.insights.reindexing : t.insights.reindexMemory}
+          </button>
+        </div>
+
+        {memoryIndexMessage && (
+          <div style={{
+            fontSize: '12px',
+            color: 'var(--accent-emerald)',
+            background: 'rgba(16, 185, 129, 0.1)',
+            padding: '8px 12px',
+            borderRadius: '6px',
+            marginBottom: '14px',
+            border: '1px solid rgba(16, 185, 129, 0.2)'
+          }}>
+            {memoryIndexMessage}
+          </div>
+        )}
+
+        {/* Semantic Query Input */}
+        <form onSubmit={handleSearchMemory} style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
+            <Search
+              size={16}
+              style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--text-muted)',
+                pointerEvents: 'none'
+              }}
+            />
+            <input
+              type="text"
+              value={memoryQuery}
+              onChange={(e) => setMemoryQuery(e.target.value)}
+              placeholder={t.insights.searchMemoryPlaceholder}
+              className="search-input"
+              style={{
+                width: '100%',
+                paddingLeft: '36px',
+                paddingRight: '12px',
+                height: '38px',
+                borderRadius: '8px',
+                fontSize: '13px'
+              }}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={isSearchingMemory || !memoryQuery.trim()}
+            className="btn-primary"
+            style={{
+              padding: '0 18px',
+              height: '38px',
+              fontSize: '13px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <Sparkles size={14} />
+            {isSearchingMemory ? (language === 'zh' ? '正在匹配…' : 'Querying…') : (language === 'zh' ? '智能检索' : 'Search Memory')}
+          </button>
+        </form>
+
+        {/* Semantic Matches List */}
+        {hasSearchedMemory && (
+          <div style={{ marginTop: '12px' }}>
+            {memoryResults.length === 0 ? (
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '16px', textAlign: 'center' }}>
+                {t.insights.noMemoryFound}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {memoryResults.map((match, idx) => {
+                  const simPct = Math.round((match.similarity || 0) * 100);
+                  const typeColors: Record<string, string> = {
+                    decision: '#10b981',
+                    key_point: '#6366f1',
+                    action_item: '#f59e0b',
+                    summary: '#a855f7'
+                  };
+                  const color = typeColors[match.chunk_type] || 'var(--accent-primary)';
+
+                  return (
+                    <div
+                      key={match.id || idx}
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: '8px',
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        border: '1px solid var(--glass-border)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span
+                            style={{
+                              fontSize: '10.5px',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              background: `${color}20`,
+                              color: color,
+                              border: `1px solid ${color}40`
+                            }}
+                          >
+                            {match.chunk_type.replace('_', ' ')}
+                          </span>
+                          {match.metadata?.title && (
+                            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                              {match.metadata.title}
+                            </span>
+                          )}
+                        </div>
+
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--accent-emerald)' }}>
+                          {simPct}% match
+                        </span>
+                      </div>
+
+                      <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                        {match.chunk_text}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Cross-Meeting AI Chatbox */}
+      <AiChatBox defaultExpanded={false} />
 
       {/* DEDICATED ACTION ITEMS TABLE SECTION (INSIGHT TAB) */}
       <div className="glass-panel" style={{ padding: '26px' }}>
@@ -539,6 +872,7 @@ export const AnalyticsWidgets: React.FC = () => {
 
         {/* Add New Action Item Bar */}
         <form
+          className="insight-task-form"
           onSubmit={handleAddTask}
           style={{
             display: 'flex',
@@ -786,6 +1120,144 @@ export const AnalyticsWidgets: React.FC = () => {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Responsive Mobile Cards View (Visible on <= 640px) */}
+        <div className="insight-cards-mobile">
+          {isLoading ? (
+            <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '13px' }}>
+              {t.insights.queryingDatabase}
+            </div>
+          ) : filteredTasks.length === 0 ? (
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
+              padding: '24px', color: 'var(--text-muted)', background: 'var(--glass-surface-subtle)',
+              borderRadius: '12px', border: '1px solid var(--glass-border)'
+            }}>
+              <AlertCircle size={20} style={{ opacity: 0.7 }} />
+              <span style={{ fontSize: '12.5px', textAlign: 'center' }}>
+                {searchQuery
+                  ? (language === 'zh' ? `未找到匹配 "${searchQuery}" 的事项。` : t.insights.noMatchSearch.replace('{query}', searchQuery))
+                  : filterStatus !== 'all'
+                  ? (language === 'zh'
+                      ? `暂无${filterStatus === 'pending' ? '待处理' : '已完成'}的行动项。`
+                      : t.insights.noFilterMatch.replace('{status}', filterStatus))
+                  : t.insights.noTasksRecorded}
+              </span>
+            </div>
+          ) : (
+            filteredTasks.map((item) => {
+              const isDone = item.status === 'completed';
+              return (
+                <div
+                  key={'m-' + item.id}
+                  onClick={() => toggleTask(item)}
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: '14px',
+                    background: isDone ? 'rgba(255, 255, 255, 0.02)' : 'var(--glass-surface-subtle)',
+                    border: `1px solid ${isDone ? 'rgba(255, 255, 255, 0.06)' : 'var(--glass-border)'}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                      <div style={{
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '7px',
+                        background: isDone ? 'var(--accent-emerald)' : 'transparent',
+                        border: `1.5px solid ${isDone ? 'var(--accent-emerald)' : 'var(--text-muted)'}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}>
+                        {isDone && <Check size={14} color="#ffffff" strokeWidth={3} />}
+                      </div>
+                      <span style={{
+                        fontSize: '14px',
+                        fontWeight: isDone ? 400 : 600,
+                        color: isDone ? 'var(--text-muted)' : 'var(--text-primary)',
+                        textDecoration: isDone ? 'line-through' : 'none',
+                        lineHeight: 1.4
+                      }}>
+                        {item.task}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteTask(e, item.id)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        padding: '4px',
+                        cursor: 'pointer'
+                      }}
+                      title={t.insights.deleteTooltip}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', paddingLeft: '32px' }}>
+                    <span style={{
+                      fontSize: '10.5px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.4px',
+                      padding: '2px 7px',
+                      borderRadius: '5px',
+                      background: isDone ? 'rgba(16, 185, 129, 0.12)' : 'rgba(139, 92, 246, 0.12)',
+                      color: isDone ? 'var(--accent-emerald)' : 'var(--accent-purple)'
+                    }}>
+                      {isDone ? t.insights.statusDone : t.insights.statusPending}
+                    </span>
+
+                    {item.assignee && item.assignee !== 'Unassigned' && (
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        background: 'rgba(99, 102, 241, 0.12)',
+                        color: 'var(--accent-primary)',
+                        padding: '2px 7px',
+                        borderRadius: '5px'
+                      }}>
+                        <User size={11} />
+                        {item.assignee}
+                      </span>
+                    )}
+
+                    {item.due_date && (
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '11px',
+                        color: 'var(--text-muted)',
+                        background: 'var(--glass-surface-subtle)',
+                        padding: '2px 7px',
+                        borderRadius: '5px',
+                        border: '1px solid var(--glass-border)'
+                      }}>
+                        <Calendar size={11} />
+                        {item.due_date.split('T')[0]}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </div>

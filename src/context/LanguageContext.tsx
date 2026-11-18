@@ -79,6 +79,8 @@ export const translations = {
       copyMarkdown: 'Copy Markdown',
       copied: 'Copied to clipboard!',
       exportMarkdown: 'Export .md',
+      exportPdf: 'Export PDF',
+      exportingPdf: 'Generating PDF…',
       task: 'Task',
       assignee: 'Assignee',
       dueDate: 'Due Date',
@@ -172,7 +174,18 @@ export const translations = {
       noMatchSearch: 'No deliverables match "{query}".',
       noFilterMatch: 'No {status} action items found.',
       noTasksRecorded: 'No action items recorded yet in the Insight table. Add your first deliverable above.',
-      deleteTooltip: 'Delete deliverable'
+      deleteTooltip: 'Delete deliverable',
+      vectorMemoryTitle: 'Deep Intelligence: Semantic Vector Memory',
+      vectorMemorySubtitle: 'Adaptive cross-meeting knowledge retrieval powered by dense embeddings and vector memory.',
+      searchMemoryPlaceholder: 'Ask AI or query semantic memory across all past meetings...',
+      reindexMemory: 'Index All Meetings',
+      reindexing: 'Indexing...',
+      noMemoryFound: 'No semantic memories matched your query.',
+      deadlineAlertTitle: 'Action Item Deadline Alerts',
+      enableNotifications: 'Enable Browser Alerts',
+      dueInHours: 'Due in {h}h',
+      overdueHours: 'Overdue by {h}h',
+      urgentNotice: 'Needs immediate attention'
     },
 
     // Settings View
@@ -300,6 +313,8 @@ export const translations = {
       copyMarkdown: '复制 Markdown',
       copied: '已复制到剪贴板！',
       exportMarkdown: '导出 .md',
+      exportPdf: '导出 PDF',
+      exportingPdf: '正在生成 PDF…',
       task: '任务',
       assignee: '负责人',
       dueDate: '截止日期',
@@ -393,7 +408,18 @@ export const translations = {
       noMatchSearch: '未找到匹配 "{query}" 的事项。',
       noFilterMatch: '暂无符合条件的行动项。',
       noTasksRecorded: '待办表中暂无记录。请在上方添加首个交付事项。',
-      deleteTooltip: '删除该事项'
+      deleteTooltip: '删除该事项',
+      vectorMemoryTitle: '深度智能：语义向量记忆库 (Vector Memory)',
+      vectorMemorySubtitle: '基于稠密向量嵌入与语义检索的跨会议自适应记忆与知识调取。',
+      searchMemoryPlaceholder: '向 AI 提问或跨会议检索语义记忆（如：项目进度、关键决议、待办事项）...',
+      reindexMemory: '重新索引全部会议',
+      reindexing: '正在索引向量库...',
+      noMemoryFound: '未检索到与查询相关的语义记忆。',
+      deadlineAlertTitle: '待办截止预警 (Event-Driven Alerts)',
+      enableNotifications: '启用浏览器通知',
+      dueInHours: '距离截止还有 {h} 小时',
+      overdueHours: '已逾期 {h} 小时',
+      urgentNotice: '紧急待处理事项'
     },
 
     // Settings View

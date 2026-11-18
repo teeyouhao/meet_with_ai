@@ -1,109 +1,147 @@
 import { Router } from 'express';
-import { createReqSupabaseClient, supabaseAdmin } from '../utils/supabase.js';
-import type { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
+import type { Response } from 'express';
+import { findUserByEmail, createUser } from '../services/userService.js';
+import { generateToken } from '../utils/jwt.js';
+import { optionalAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 
 const router = Router();
-const CLIENT_URL = process.env.CLIENT_URL || '';
+
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+};
 
 /**
- * GET /auth/callback
- * Handles Supabase PKCE callback (for password-reset magic links, email confirmation, etc.)
- * Enterprise OAuth flows have been removed — authentication is handled entirely client-side
- * via Supabase JS SDK (email/password and optional Google social auth).
+ * POST /auth/register
+ * Native TypeScript Registration using PostgreSQL
  */
-router.get('/callback', async (req: Request, res: Response) => {
-  const code = req.query.code as string;
-  const next = (req.query.next as string) || '/';
-
-  if (!code) {
-    return res.redirect(`${CLIENT_URL}/?error=missing_code`);
-  }
-
+router.post('/register', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const supabase = createReqSupabaseClient(req, res);
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { email, password, fullName } = req.body;
 
-    if (error) {
-      console.error('Code exchange failed:', error);
-      return res.redirect(`${CLIENT_URL}/?error=auth_failed`);
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+      return res.status(400).json({ error: 'Valid email address is required.' });
+    }
+    if (!password || typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
+    }
+    if (!fullName || typeof fullName !== 'string' || !fullName.trim()) {
+      return res.status(400).json({ error: 'Full name is required.' });
     }
 
-    return res.redirect(`${CLIENT_URL}${next}`);
-  } catch (err) {
-    console.error('Unexpected callback error:', err);
-    return res.redirect(`${CLIENT_URL}/?error=server_error`);
+    const existing = await findUserByEmail(email);
+    if (existing) {
+      return res.status(409).json({ error: 'An account with this email already exists.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    const newUser = await createUser({
+      email,
+      passwordHash,
+      fullName: fullName.trim(),
+      role: 'user'
+    });
+
+    const userPayload = {
+      id: newUser.id,
+      email: newUser.email,
+      fullName: newUser.full_name,
+      role: newUser.role
+    };
+
+    const token = generateToken(userPayload);
+    res.cookie('token', token, COOKIE_OPTIONS);
+
+    return res.status(201).json({
+      success: true,
+      token,
+      user: userPayload
+    });
+  } catch (err: any) {
+    console.error('[auth/register] Error:', err);
+    return res.status(500).json({ error: err.message || 'Registration failed.' });
   }
 });
 
 /**
- * GET /auth/session
- * Returns the current authenticated user profile from the session cookie.
+ * POST /auth/login
+ * Native TypeScript Login using PostgreSQL
  */
-router.get('/session', async (req: Request, res: Response) => {
+router.post('/login', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const supabase = createReqSupabaseClient(req, res);
-    const { data: { user }, error } = await supabase.auth.getUser();
+    const { email, password } = req.body;
 
-    if (error || !user) {
-      return res.json({ authenticated: false, user: null });
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' });
     }
 
+    const user = await findUserByEmail(email);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    const userPayload = {
+      id: user.id,
+      email: user.email,
+      fullName: user.full_name,
+      role: user.role
+    };
+
+    const token = generateToken(userPayload);
+    res.cookie('token', token, COOKIE_OPTIONS);
+
     return res.json({
-      authenticated: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0],
-        avatar_url: user.user_metadata?.avatar_url
-      }
+      success: true,
+      token,
+      user: userPayload
     });
-  } catch {
-    return res.status(500).json({ error: 'Failed to retrieve session' });
+  } catch (err: any) {
+    console.error('[auth/login] Error:', err);
+    return res.status(500).json({ error: err.message || 'Login failed.' });
   }
+});
+
+/**
+ * GET /auth/session & GET /auth/me
+ * Retrieves the currently active user profile from JWT
+ */
+router.get(['/session', '/me'], optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) {
+    return res.json({
+      authenticated: false,
+      user: null
+    });
+  }
+
+  return res.json({
+    authenticated: true,
+    user: {
+      id: req.user.id,
+      email: req.user.email,
+      name: req.user.fullName,
+      fullName: req.user.fullName,
+      role: req.user.role
+    }
+  });
 });
 
 /**
  * POST /auth/logout
- * Signs out the user and clears session cookies.
+ * Clears JWT session cookie
  */
-router.post('/logout', async (req: Request, res: Response) => {
-  try {
-    const supabase = createReqSupabaseClient(req, res);
-    await supabase.auth.signOut();
-    return res.json({ success: true });
-  } catch {
-    return res.status(500).json({ error: 'Failed to log out' });
-  }
-});
-
-/**
- * POST /auth/auto-confirm
- * Automatically confirms user's email via admin API to avoid email verification delays
- */
-router.post('/auto-confirm', async (req: Request, res: Response) => {
-  const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
-  }
-
-  try {
-    const { data, error: listError } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 100 });
-    if (listError) throw listError;
-
-    const user = data.users.find((u) => u.email?.toLowerCase() === String(email).trim().toLowerCase());
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    if (!user.email_confirmed_at) {
-      await supabaseAdmin.auth.admin.updateUserById(user.id, { email_confirm: true });
-    }
-
-    return res.json({ success: true, confirmed: true });
-  } catch (err) {
-    console.error('Auto-confirm error:', err);
-    return res.status(500).json({ error: 'Failed to auto-confirm user' });
-  }
+router.post('/logout', (_req: AuthenticatedRequest, res: Response) => {
+  res.clearCookie('token', COOKIE_OPTIONS);
+  return res.json({ success: true });
 });
 
 export default router;

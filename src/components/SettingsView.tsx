@@ -281,8 +281,8 @@ export const SettingsView: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <Cloud size={20} color="var(--accent-cyan)" />
                 <div>
-                  <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Tier 2 Cloud Fallback</p>
-                  <p style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>OpenRouter Multi-Model Chain (4 Models)</p>
+                  <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Cloud Intelligence Engine</p>
+                  <p style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Groq LPU (GPT-OSS-120B / Qwen 27B / GPT-OSS-20B)</p>
                 </div>
               </div>
               <span className="badge badge-server">

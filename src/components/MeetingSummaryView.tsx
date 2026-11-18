@@ -9,11 +9,15 @@ import {
   Calendar,
   User,
   Pencil,
-  X
+  X,
+  FileDown,
+  Loader2
 } from 'lucide-react';
 import type { SummarizeResult } from '../services/summarizer';
 import { fetchActionItems, updateMeetingActionItems, updateMeetingTitle } from '../services/supabase';
 import { useLanguage } from '../context/LanguageContext';
+import { exportMeetingToPdf } from '../services/pdfExporter';
+import { AiChatBox } from './AiChatBox';
 
 interface ActionItemWithStatus {
   task: string;
@@ -46,6 +50,7 @@ export const MeetingSummaryView: React.FC<MeetingSummaryViewProps> = ({
   const { t, language } = useLanguage();
   const effectiveBackLabel = backLabel || t.summary.backToStudio;
   const [copied, setCopied] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   // Title editing state
   const [currentTitle, setCurrentTitle] = useState(title);
@@ -202,19 +207,52 @@ ${transcript ? `\n## Transcript\n${transcript}\n` : ''}`;
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleExportPdf = async () => {
+    if (isExportingPdf) return;
+    setIsExportingPdf(true);
+    try {
+      await exportMeetingToPdf({
+        title: currentTitle,
+        overview: result.summary.overview || '',
+        key_points: result.summary.key_points || [],
+        decisions: result.summary.decisions || [],
+        action_items: actionItems,
+        transcript: transcript,
+        dateStr: new Date().toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US', { dateStyle: 'long' }),
+        sourceElementId: 'meeting-summary-report-card'
+      });
+    } catch (err) {
+      console.error('[MeetingSummaryView] PDF export error:', err);
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   return (
-    <div className="page-container">
+    <div className="page-container" id="meeting-summary-report-card">
       {/* Top Bar Navigation */}
-      <div className="summary-topbar" style={{ justifyContent: 'space-between', marginBottom: '20px' }}>
+      <div className="summary-topbar" style={{ justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
         <button onClick={onBack} className="btn-secondary" style={{ padding: '8px 14px', fontSize: '13px' }}>
           <ArrowLeft size={16} />
           {effectiveBackLabel}
         </button>
 
-        <button onClick={copyToClipboard} className="btn-primary" style={{ padding: '8px 14px', fontSize: '13px' }}>
-          {copied ? <Check size={16} color="#10b981" /> : <Copy size={16} />}
-          {copied ? t.summary.copied : t.summary.copyMarkdown}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            onClick={handleExportPdf}
+            disabled={isExportingPdf}
+            className="btn-secondary"
+            style={{ padding: '8px 14px', fontSize: '13px', opacity: isExportingPdf ? 0.7 : 1 }}
+          >
+            {isExportingPdf ? <Loader2 size={16} className="spin" /> : <FileDown size={16} color="var(--accent-primary)" />}
+            {isExportingPdf ? (t.summary.exportingPdf || 'Generating PDF…') : (t.summary.exportPdf || 'Export PDF')}
+          </button>
+
+          <button onClick={copyToClipboard} className="btn-primary" style={{ padding: '8px 14px', fontSize: '13px' }}>
+            {copied ? <Check size={16} color="#10b981" /> : <Copy size={16} />}
+            {copied ? t.summary.copied : t.summary.copyMarkdown}
+          </button>
+        </div>
       </div>
 
       {/* Main Title Banner Card */}
@@ -435,6 +473,9 @@ ${transcript ? `\n## Transcript\n${transcript}\n` : ''}`;
           )}
         </div>
       </div>
+
+      {/* Interactive AI Chatbox for this meeting */}
+      <AiChatBox meetingId={meetingId} meetingTitle={currentTitle} defaultExpanded={false} />
 
       {/* Action Items Section */}
       <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>

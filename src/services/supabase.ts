@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import { getStoredUser } from './auth';
+import { indexAllMeetings } from './memory';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://tbowdfpwhgakbgecdoqg.supabase.co';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -69,7 +71,7 @@ function safeParseDate(val?: string): string | null {
 
 // Save meeting and action items
 export async function saveMeetingWithItems(meeting: Partial<MeetingRecord>, actionItems?: ActionItemInput[]): Promise<MeetingRecord | null> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = getStoredUser();
 
   const { data: savedMeeting, error } = await supabase
     .from('meetings')
@@ -107,6 +109,9 @@ export async function saveMeetingWithItems(meeting: Partial<MeetingRecord>, acti
       console.warn('[saveMeetingWithItems] Action items sync warning:', itemErr);
     }
   }
+
+  // Asynchronously index meeting into vector semantic memory
+  indexAllMeetings().catch(() => {});
 
   return savedMeeting;
 }
@@ -237,7 +242,7 @@ export async function updateMeetingActionItems(
     }
 
     // 3. Keep action_items table in sync (update existing or insert new row)
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = getStoredUser();
     for (const item of actionItems) {
       if (!item.task) continue;
       const statusVal = item.status === 'completed' ? 'completed' : 'pending';
@@ -303,7 +308,7 @@ export async function fetchAllActionItems(): Promise<ActionItemRecord[]> {
 
 /** Create a new action item in Supabase */
 export async function createActionItem(task: string, assignee?: string, meetingId?: string): Promise<ActionItemRecord | null> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = getStoredUser();
   const { data, error } = await supabase
     .from('action_items')
     .insert({
@@ -386,7 +391,7 @@ export async function createInsightTask(
   assignee?: string,
   dueDate?: string
 ): Promise<InsightTaskRecord | null> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = getStoredUser();
 
   const formattedDueDate = dueDate ? safeParseDate(dueDate) : undefined;
 
