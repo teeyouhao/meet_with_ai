@@ -25,7 +25,7 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
     });
   }
 
-  const file = req.file;
+  const file = (req as any).file;
   if (!file) {
     return res.status(400).json({
       error: 'No audio file provided in the request (expected field: audio).'
