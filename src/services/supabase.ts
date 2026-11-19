@@ -1,9 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
-import { getStoredUser } from './auth';
+import { getStoredUser, getAuthToken } from './auth';
 import { indexAllMeetings } from './memory';
 
+const API_BASE = (import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:5000' : '')).replace(/\/$/, '');
+
+function getAuthHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://tbowdfpwhgakbgecdoqg.supabase.co';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const SUPABASE_ANON_KEY =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRib3dkZnB3aGdha2JnZWNkb3FnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE2MDM2NjAsImV4cCI6MjEwNzE3OTY2MH0.MsxqlVir26fP20ScrgZGv6TjhMMWoeLPZMg6bwv6yU4';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
@@ -45,6 +58,22 @@ export interface ActionItemRecord {
 
 // Fetch meetings for current session
 export async function fetchMeetings(): Promise<MeetingRecord[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/meetings`, {
+      headers: getAuthHeaders(),
+      credentials: 'include'
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.meetings)) {
+        return data.meetings;
+      }
+    }
+  } catch (err) {
+    console.warn('[fetchMeetings] API fetch error, falling back to direct query:', err);
+  }
+
+  // Fallback to direct supabase query
   const { data, error } = await supabase
     .from('meetings')
     .select('*')
@@ -72,6 +101,31 @@ function safeParseDate(val?: string): string | null {
 // Save meeting and action items
 export async function saveMeetingWithItems(meeting: Partial<MeetingRecord>, actionItems?: ActionItemInput[]): Promise<MeetingRecord | null> {
   const user = getStoredUser();
+
+  try {
+    const res = await fetch(`${API_BASE}/api/meetings/save`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({
+        title: meeting.title || 'Meeting Recording',
+        duration_seconds: meeting.duration_seconds || 0,
+        source: meeting.source || 'live',
+        transcript: meeting.transcript || '',
+        summary: meeting.summary || {},
+        action_items: actionItems
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.meeting) {
+        indexAllMeetings().catch(() => {});
+        return data.meeting;
+      }
+    }
+  } catch (apiErr) {
+    console.warn('[saveMeetingWithItems] API error, falling back to direct query:', apiErr);
+  }
 
   const { data: savedMeeting, error } = await supabase
     .from('meetings')
@@ -131,6 +185,17 @@ export async function deleteMeeting(meetingId: string, audioUrl?: string): Promi
     }
   }
 
+  try {
+    const res = await fetch(`${API_BASE}/api/meetings/${meetingId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+      credentials: 'include'
+    });
+    if (res.ok) return true;
+  } catch (err) {
+    console.warn('[deleteMeeting] API error, falling back to direct delete:', err);
+  }
+
   const { error } = await supabase
     .from('meetings')
     .delete()
@@ -147,6 +212,18 @@ export async function deleteMeeting(meetingId: string, audioUrl?: string): Promi
 export async function updateMeetingTitle(meetingId: string, newTitle: string): Promise<boolean> {
   const trimmedTitle = newTitle.trim();
   if (!trimmedTitle) return false;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/meetings/${meetingId}/title`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ title: trimmedTitle })
+    });
+    if (res.ok) return true;
+  } catch (err) {
+    console.warn('[updateMeetingTitle] API error, falling back to direct update:', err);
+  }
 
   try {
     // Keep title inside summary object aligned if present
@@ -190,6 +267,18 @@ export async function updateActionItemStatus(
   actionItemId: string,
   status: 'pending' | 'in_progress' | 'completed'
 ): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/meetings/action-items/${actionItemId}`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ status })
+    });
+    if (res.ok) return true;
+  } catch (err) {
+    console.warn('[updateActionItemStatus] API error, falling back to direct update:', err);
+  }
+
   const { error } = await supabase
     .from('action_items')
     .update({ status })
@@ -294,6 +383,21 @@ export async function fetchActionItems(meetingId: string): Promise<ActionItemRec
 
 /** Fetch all action items across meetings */
 export async function fetchAllActionItems(): Promise<ActionItemRecord[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/meetings/action-items`, {
+      headers: getAuthHeaders(),
+      credentials: 'include'
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.actionItems)) {
+        return data.actionItems;
+      }
+    }
+  } catch (err) {
+    console.warn('[fetchAllActionItems] API error, falling back to direct query:', err);
+  }
+
   const { data, error } = await supabase
     .from('action_items')
     .select('*')
@@ -330,6 +434,17 @@ export async function createActionItem(task: string, assignee?: string, meetingI
 
 /** Delete an action item from Supabase */
 export async function deleteActionItem(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/meetings/action-items/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+      credentials: 'include'
+    });
+    if (res.ok) return true;
+  } catch (err) {
+    console.warn('[deleteActionItem] API error, falling back to direct delete:', err);
+  }
+
   const { error } = await supabase
     .from('action_items')
     .delete()
