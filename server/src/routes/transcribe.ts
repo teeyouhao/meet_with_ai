@@ -1,5 +1,7 @@
-import { Router, Request, Response } from 'express';
+import { Router, type Response } from 'express';
 import multer from 'multer';
+import { optionalAuth, type AuthenticatedRequest } from '../middleware/auth.js';
+import { getAudioVocabularyContext } from '../services/embeddingService.js';
 
 const router = Router();
 
@@ -16,8 +18,8 @@ interface TranscribeRequestBody {
   language?: string;
 }
 
-router.post('/', upload.single('audio'), async (req: Request, res: Response) => {
-  const groqApiKey = process.env.GROQ_API_KEY;
+router.post('/', upload.single('audio'), optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const groqApiKey = process.env.GROQ_API_KEY || '';
 
   if (!groqApiKey) {
     return res.status(500).json({
@@ -34,6 +36,19 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
 
   try {
     const { prompt, language } = req.body as TranscribeRequestBody;
+    const userId = req.user?.id || null;
+
+    // Asynchronously retrieve prior domain vocabulary from Cloud SQL + Vector Memory
+    // before calling speech recognition ("before the first word / two memory system")
+    let memoryVocabularyPrompt = '';
+    try {
+      memoryVocabularyPrompt = await getAudioVocabularyContext(userId);
+      if (memoryVocabularyPrompt) {
+        console.log('[Transcribe Audio Vector Bias]:', memoryVocabularyPrompt);
+      }
+    } catch (memErr) {
+      console.warn('[Transcribe] Memory vocabulary retrieval skipped:', memErr);
+    }
 
     // Build standard multipart FormData for Groq / OpenAI-compatible API
     const formData = new FormData();
@@ -59,8 +74,10 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
       formData.append('language', language);
     }
 
-    if (prompt) {
-      formData.append('prompt', prompt);
+    // Combine client prompt + vector memory domain vocabulary
+    const combinedPrompt = [prompt, memoryVocabularyPrompt].filter(Boolean).join(' ');
+    if (combinedPrompt) {
+      formData.append('prompt', combinedPrompt.slice(0, 800));
     }
 
     const groqResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {

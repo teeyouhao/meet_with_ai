@@ -339,3 +339,92 @@ export async function getAdaptiveContextForTranscript(
     return '';
   }
 }
+
+/**
+ * Asynchronously retrieves specialized domain vocabulary, sentence entities,
+ * and technical terms from Cloud SQL + Vector Memory Store before audio transcription begins.
+ * This directly matches the "before the first word / two memory system" architecture:
+ * 1. Cloud SQL reads structured facts (recent meeting titles, topics, action items).
+ * 2. Vector Store retrieves recurring domain terms and proper nouns.
+ * Returns an optimized vocabulary biasing prompt for Whisper speech recognition to
+ * accurately recognize domain words, names, and technical terms.
+ */
+export async function getAudioVocabularyContext(userId?: string | null): Promise<string> {
+  try {
+    const terms = new Set<string>();
+
+    // 1. Cloud SQL: Read structured facts (recent meeting titles & topics)
+    let mQuery = supabaseAdmin
+      .from('meetings')
+      .select('title, summary')
+      .order('created_at', { ascending: false })
+      .limit(6);
+
+    if (userId) {
+      mQuery = mQuery.or(`user_id.eq.${userId},user_id.is.null`);
+    }
+
+    const { data: recentMeetings } = await mQuery;
+    if (recentMeetings && Array.isArray(recentMeetings)) {
+      for (const m of recentMeetings) {
+        if (m.title && m.title.trim()) {
+          terms.add(m.title.trim());
+        }
+        const keyPoints = m.summary?.key_points;
+        if (Array.isArray(keyPoints)) {
+          keyPoints.slice(0, 4).forEach((kp: string) => {
+            const matches = kp.match(/[A-Z][a-zA-Z0-9_-]{2,}/g);
+            if (matches) {
+              matches.forEach((word: string) => terms.add(word));
+            }
+          });
+        }
+      }
+    }
+
+    // 2. Vector Store: Read facts from memory bank (key points, decisions, terminology)
+    const useTable = await checkEmbeddingsTable();
+    if (useTable) {
+      try {
+        let vQuery = supabaseAdmin
+          .from('meeting_embeddings')
+          .select('chunk_text')
+          .in('chunk_type', ['key_point', 'decision', 'topic'])
+          .limit(10);
+        if (userId) {
+          vQuery = vQuery.or(`user_id.eq.${userId},user_id.is.null`);
+        }
+        const { data: vChunks } = await vQuery;
+        if (vChunks && Array.isArray(vChunks)) {
+          for (const vc of vChunks) {
+            const matches = (vc.chunk_text || '').match(/[A-Z][a-zA-Z0-9_-]{2,}/g);
+            if (matches) {
+              matches.forEach((w: string) => terms.add(w));
+            }
+          }
+        }
+      } catch {
+        // Non-blocking
+      }
+    }
+
+    if (terms.size === 0) {
+      return '';
+    }
+
+    // Filter out common english stopwords
+    const stopwords = new Set([
+      'The', 'And', 'For', 'With', 'From', 'Meeting', 'Overview',
+      'Key', 'Point', 'Decision', 'Agreed', 'Action', 'Item',
+      'This', 'That', 'These', 'Those', 'Will', 'Have'
+    ]);
+    const filteredTerms = Array.from(terms).filter(t => !stopwords.has(t) && t.length > 2);
+
+    // Limit to ~25 top unique terms to stay comfortably within Whisper's 224-token prompt window
+    const biasTerms = filteredTerms.slice(0, 25).join(', ');
+    return biasTerms ? `Domain terms and vocabulary: ${biasTerms}.` : '';
+  } catch (err) {
+    console.warn('[VectorMemory] getAudioVocabularyContext error:', err);
+    return '';
+  }
+}

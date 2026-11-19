@@ -17,7 +17,6 @@ import type { SummarizeResult } from '../services/summarizer';
 import { fetchActionItems, updateMeetingActionItems, updateMeetingTitle } from '../services/supabase';
 import { useLanguage } from '../context/LanguageContext';
 import { exportMeetingToPdf } from '../services/pdfExporter';
-import { AiChatBox } from './AiChatBox';
 
 interface ActionItemWithStatus {
   task: string;
@@ -473,9 +472,6 @@ ${transcript ? `\n## Transcript\n${transcript}\n` : ''}`;
           )}
         </div>
       </div>
-
-      {/* Interactive AI Chatbox for this meeting */}
-      <AiChatBox meetingId={meetingId} meetingTitle={currentTitle} defaultExpanded={false} />
 
       {/* Action Items Section */}
       <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>

@@ -6,6 +6,7 @@ import { MeetingSummaryView } from './components/MeetingSummaryView';
 import { MeetingHistory } from './components/MeetingHistory';
 import { AnalyticsWidgets } from './components/AnalyticsWidgets';
 import { AuthPage } from './components/AuthPage';
+import { AiChatBox } from './components/AiChatBox';
 import { useAuth } from './context/AuthContext';
 import { useLanguage } from './context/LanguageContext';
 import type { SummarizeResult } from './services/summarizer';
@@ -192,6 +193,12 @@ function AppShell() {
           }
           setActiveTab(tab);
         }}
+      />
+
+      {/* Floating AI Executive Assistant (ChatGPT-style) */}
+      <AiChatBox
+        meetingId={vaultMeeting?.id || currentMeetingId || undefined}
+        meetingTitle={vaultMeeting?.title || currentTitle || undefined}
       />
     </div>
   );

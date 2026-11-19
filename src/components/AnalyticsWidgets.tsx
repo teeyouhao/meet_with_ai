@@ -28,7 +28,6 @@ import {
 import { fetchDeadlineAlerts, requestNotificationPermission, type DeadlineAlert } from '../services/alerts';
 import { searchSemanticMemory, indexAllMeetings, type SemanticMemoryMatch } from '../services/memory';
 import { useLanguage } from '../context/LanguageContext';
-import { AiChatBox } from './AiChatBox';
 
 export const AnalyticsWidgets: React.FC = () => {
   const { t, language } = useLanguage();
@@ -749,9 +748,6 @@ export const AnalyticsWidgets: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Cross-Meeting AI Chatbox */}
-      <AiChatBox defaultExpanded={false} />
 
       {/* DEDICATED ACTION ITEMS TABLE SECTION (INSIGHT TAB) */}
       <div className="glass-panel" style={{ padding: '26px' }}>

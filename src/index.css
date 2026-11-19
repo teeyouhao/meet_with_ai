@@ -847,3 +847,150 @@ button:disabled {
 .insight-table tbody tr:hover {
   background: rgba(99, 102, 241, 0.04);
 }
+
+/* ==========================================================================
+   ChatGPT Shimmer Loading Effect & Floating Chat Widget
+   ========================================================================== */
+
+@keyframes chatgpt-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes chatgpt-pulse-dot {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes fab-glow-pulse {
+  0%, 100% {
+    box-shadow: 0 8px 24px -4px var(--accent-primary-glow), 0 0 0 1px var(--glass-border);
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    box-shadow: 0 14px 34px 0 var(--accent-cyan-glow), 0 0 0 1.5px rgba(255, 255, 255, 0.35);
+    transform: translateY(-2px) scale(1.03);
+  }
+}
+
+@keyframes chat-popup-enter {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.chatgpt-shimmer-line {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(255, 255, 255, 0.28) 50%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  background-size: 200% 100%;
+  animation: chatgpt-shimmer 1.8s infinite ease-in-out;
+}
+
+[data-theme="light"] .chatgpt-shimmer-line {
+  background: linear-gradient(
+    90deg,
+    rgba(15, 23, 42, 0.06) 0%,
+    rgba(99, 102, 241, 0.22) 50%,
+    rgba(15, 23, 42, 0.06) 100%
+  );
+  background-size: 200% 100%;
+}
+
+.chatgpt-shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--accent-primary) 0%,
+    var(--accent-purple) 25%,
+    var(--accent-cyan) 50%,
+    var(--accent-primary) 75%,
+    var(--accent-purple) 100%
+  );
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: chatgpt-shimmer 2.2s linear infinite;
+  font-weight: 600;
+  display: inline-block;
+}
+
+.floating-chat-fab {
+  position: fixed;
+  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  right: 22px;
+  width: 52px;
+  height: 52px;
+  border-radius: 26px;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-purple) 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 990;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  animation: fab-glow-pulse 3s infinite ease-in-out;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+}
+
+.floating-chat-fab:hover {
+  transform: translateY(-3px) scale(1.08);
+}
+
+.floating-chat-popup {
+  position: fixed;
+  bottom: calc(158px + env(safe-area-inset-bottom, 0px));
+  right: 22px;
+  width: 390px;
+  max-width: calc(100vw - 32px);
+  height: 540px;
+  max-height: calc(100vh - 200px);
+  border-radius: 20px;
+  background: var(--glass-surface);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  z-index: 995;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: chat-popup-enter 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (max-width: 640px) {
+  .floating-chat-fab {
+    right: 16px;
+    bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+    width: 46px;
+    height: 46px;
+  }
+  .floating-chat-popup {
+    right: 12px;
+    left: 12px;
+    width: auto;
+    bottom: calc(146px + env(safe-area-inset-bottom, 0px));
+    height: 480px;
+  }
+}
