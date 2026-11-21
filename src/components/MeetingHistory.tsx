@@ -36,10 +36,56 @@ interface MeetingHistoryProps {
   onOpenChat?: (meeting: MeetingRecord) => void;
 }
 
+const CREATIVE_VAULT_QUOTES = [
+  {
+    en: "“Meetings are fascinating if you're keeping the minutes.”",
+    zh: "“如果你负责整理会议纪要，会议就会格外有启发。”"
+  },
+  {
+    en: "“Great minds discuss ideas, average minds discuss events, small minds discuss people.” — Eleanor Roosevelt",
+    zh: "“大智论道，中智论事，小智论人。” —— 埃莉诺·罗斯福"
+  },
+  {
+    en: "“Time isn’t the main thing. It’s the only thing.” — Miles Davis",
+    zh: "“时间不是主要的事情，它是唯一的事情。” —— 迈尔斯·戴维斯"
+  },
+  {
+    en: "“Creativity is intelligence having fun.” — Albert Einstein",
+    zh: "“创造力，就是智力在自得其乐。” —— 爱因斯坦"
+  },
+  {
+    en: "“The secret of getting ahead is getting started.” — Mark Twain",
+    zh: "“领先的秘诀在于立刻开始行动。” —— 马克·吐温"
+  },
+  {
+    en: "“Focus on being productive instead of busy.” — Tim Ferriss",
+    zh: "“专注于高效产出，而不是盲目忙碌。” —— 蒂姆·费里斯"
+  },
+  {
+    en: "“Simplicity is the ultimate sophistication.” — Leonardo da Vinci",
+    zh: "“至简，乃臻至繁。” —— 达芬奇"
+  },
+  {
+    en: "“Action is the foundational key to all success.” — Pablo Picasso",
+    zh: "“行动是一切成功的基石。” —— 毕加索"
+  },
+  {
+    en: "“Knowledge speaks, but wisdom listens.” — Jimi Hendrix",
+    zh: "“知识滔滔不绝，而智慧静默聆听。” —— 吉米·亨德里克斯"
+  },
+  {
+    en: "“The best way to predict the future is to create it.” — Peter Drucker",
+    zh: "“预测未来最好的方法，就是去创造它。” —— 彼得·德鲁克"
+  }
+];
+
 export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting, onOpenChat }) => {
   const { t, language } = useLanguage();
   const [meetings, setMeetings] = useState<MeetingRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingQuote, setLoadingQuote] = useState(() =>
+    CREATIVE_VAULT_QUOTES[Math.floor(Math.random() * CREATIVE_VAULT_QUOTES.length)]
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -83,6 +129,7 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
   };
 
   const refreshMeetings = async () => {
+    setLoadingQuote(CREATIVE_VAULT_QUOTES[Math.floor(Math.random() * CREATIVE_VAULT_QUOTES.length)]);
     setIsLoading(true);
     try {
       const data = await fetchMeetings();
@@ -221,9 +268,19 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
 
       {/* Meeting Cards List */}
       {isLoading ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
-          <RefreshCw size={24} className="spin" style={{ margin: '0 auto 12px', display: 'block' }} />
-          <p>{language === 'zh' ? '正在查询 Supabase 数据库…' : 'Querying Supabase database…'}</p>
+        <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--text-muted)' }}>
+          <RefreshCw size={24} className="spin" style={{ margin: '0 auto 16px', display: 'block', color: 'var(--accent-primary)' }} />
+          <p style={{
+            fontSize: '14px',
+            fontStyle: 'italic',
+            color: 'var(--text-secondary)',
+            maxWidth: '540px',
+            margin: '0 auto',
+            lineHeight: 1.65,
+            fontWeight: 500
+          }}>
+            {language === 'zh' ? loadingQuote.zh : loadingQuote.en}
+          </p>
         </div>
       ) : filteredMeetings.length === 0 ? (
         <div className="glass-panel" style={{ textAlign: 'center', padding: '60px 20px' }}>

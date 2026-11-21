@@ -37,8 +37,21 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [citations, setCitations] = useState<Array<{ title: string; text: string }>>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingPhase, setLoadingPhase] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Cycle short LLM reasoning messages while loading
+  useEffect(() => {
+    if (!isLoading) {
+      setLoadingPhase(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setLoadingPhase((prev) => (prev + 1) % 3);
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [isLoading]);
 
   // Sync props to internal state when valid
   useEffect(() => {
@@ -191,11 +204,11 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                     textOverflow: 'ellipsis',
                     maxWidth: '220px'
                   }}
-                  title={activeMeetingTitle || (language === 'zh' ? '全域向量记忆' : 'Semantic Memory')}
+                  title={activeMeetingTitle || (language === 'zh' ? '全域智能助理' : 'Executive Assistant')}
                 >
                   {activeMeetingTitle
                     ? (language === 'zh' ? `当前会议: ${activeMeetingTitle}` : `Context: ${activeMeetingTitle}`)
-                    : (language === 'zh' ? '基于全部会议向量记忆' : 'Cross-meeting vector memory')}
+                    : (language === 'zh' ? '全域智能助理' : 'Executive Assistant')}
                 </div>
               </div>
             </div>
@@ -266,7 +279,7 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                 <p style={{ fontSize: '11.5px', lineHeight: 1.45, margin: 0 }}>
                   {activeMeetingTitle
                     ? (language === 'zh' ? `您可以随时询问针对本场会议「${activeMeetingTitle}」的具体细节、行动项或决议。` : `Ask about any decisions, deadlines, or discussions from "${activeMeetingTitle}".`)
-                    : (language === 'zh' ? '我可以跨时段检索您所有会议的向量语义记忆，回答历史决策与待办。' : 'I can search cross-meeting semantic memory to surface decisions and tasks.')}
+                    : (language === 'zh' ? '您可以询问历史会议中的关键讨论、重要决议与待办事项。' : 'Ask about key discussions, decisions, and action items across your meetings.')}
                 </p>
 
                 {/* Quick Prompts */}
@@ -388,10 +401,10 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                         color: '#4285f4'
                       }}
                     />
-                    <span className="gemini-gradient-text" style={{ fontSize: '11.5px' }}>
+                    <span className="gemini-gradient-text" style={{ fontSize: '12px', fontWeight: 600 }}>
                       {language === 'zh'
-                        ? 'Gemini 正在分析会议记忆并深度思考…'
-                        : 'Gemini is analyzing meeting memory & generating insights…'}
+                        ? ['正在检索…', '深度推理…', '正在回答…'][loadingPhase]
+                        : ['Searching…', 'Reasoning…', 'Answering…'][loadingPhase]}
                     </span>
                   </div>
 
