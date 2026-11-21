@@ -282,12 +282,8 @@ export function AuthPage() {
             transition: 'all 0.2s ease'
           }}
         >
-          <Sparkles size={15} color="#818cf8" />
-          <span>✨ Continue as Guest (No Sign-in)</span>
+          <span>Continue as Guest (No Sign-in)</span>
         </button>
-        <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '6px' }}>
-          Private browser IndexedDB storage • 0 cloud setup required
-        </p>
 
         {/* Mode switcher */}
         <div style={{ marginTop: '24px', textAlign: 'center', fontSize: '14px', color: 'var(--text-secondary)' }}>
