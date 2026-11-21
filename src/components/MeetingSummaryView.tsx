@@ -129,7 +129,7 @@ export const MeetingSummaryView: React.FC<MeetingSummaryViewProps> = ({
               (d) => d.task?.trim().toLowerCase() === item.task?.trim().toLowerCase()
             );
             if (match) {
-              const statusVal: 'pending' | 'completed' = (match.status === 'completed' || item.status === 'completed') ? 'completed' : 'pending';
+              const statusVal: 'pending' | 'completed' = match.status === 'completed' ? 'completed' : 'pending';
               return {
                 ...item,
                 status: statusVal

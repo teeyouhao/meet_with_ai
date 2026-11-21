@@ -118,7 +118,7 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
               if (match) {
                 return {
                   ...dbItem,
-                  status: (match.status === 'completed' || dbItem.status === 'completed') ? 'completed' : match.status || 'pending'
+                  status: (match.status === 'completed' ? 'completed' : 'pending') as 'pending' | 'completed'
                 };
               }
               return dbItem;
@@ -144,39 +144,56 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
     });
   };
 
-  const toggleActionItem = async (meetingId: string, itemIdx: number) => {
+  const toggleActionItem = async (meetingId: string, taskTitle: string) => {
+    let updatedItemsToPersist: Array<{ task: string; assignee?: string; due_date?: string; status?: 'pending' | 'completed' }> | null = null;
+    let updatedSummaryToPersist: MeetingRecord['summary'] | undefined = undefined;
+
     setMeetings((prevMeetings) => {
       const targetMeeting = prevMeetings.find((m) => m.id === meetingId);
-      if (!targetMeeting || !targetMeeting.summary?.action_items) return prevMeetings;
+      if (!targetMeeting) return prevMeetings;
 
-      const currentItems = [...targetMeeting.summary.action_items];
-      if (!currentItems[itemIdx]) return prevMeetings;
+      const currentItems = targetMeeting.summary?.action_items ? [...targetMeeting.summary.action_items] : [];
+      const targetIdx = currentItems.findIndex(
+        (item) => item.task?.trim().toLowerCase() === taskTitle.trim().toLowerCase()
+      );
+      if (targetIdx === -1) return prevMeetings;
 
-      const currentStatus = currentItems[itemIdx].status;
+      const currentStatus = currentItems[targetIdx].status;
       const nextStatus: 'pending' | 'completed' = currentStatus === 'completed' ? 'pending' : 'completed';
-      currentItems[itemIdx] = {
-        ...currentItems[itemIdx],
-        status: nextStatus
+
+      const updatedItems = currentItems.map((item, idx) =>
+        idx === targetIdx
+          ? { ...item, status: nextStatus }
+          : item
+      );
+
+      const updatedSummary = {
+        ...(targetMeeting.summary || { overview: '', key_points: [], decisions: [] }),
+        action_items: updatedItems
       };
 
-      const updatedMeeting = {
+      updatedItemsToPersist = updatedItems;
+      updatedSummaryToPersist = updatedSummary;
+
+      const updatedMeeting: MeetingRecord = {
         ...targetMeeting,
-        summary: {
-          ...targetMeeting.summary,
-          action_items: currentItems
-        }
+        summary: updatedSummary
       };
-
-      try {
-        localStorage.setItem(`meetwithai_action_items_${meetingId}`, JSON.stringify(currentItems));
-      } catch {}
-
-      updateMeetingActionItems(meetingId, currentItems, updatedMeeting.summary).catch((err) => {
-        console.warn('Error syncing action item toggle to database:', err);
-      });
 
       return prevMeetings.map((m) => (m.id === meetingId ? updatedMeeting : m));
     });
+
+    if (updatedItemsToPersist && updatedSummaryToPersist) {
+      try {
+        localStorage.setItem(`meetwithai_action_items_${meetingId}`, JSON.stringify(updatedItemsToPersist));
+      } catch {}
+
+      try {
+        await updateMeetingActionItems(meetingId, updatedItemsToPersist, updatedSummaryToPersist);
+      } catch (err) {
+        console.warn('Error syncing action item toggle to database:', err);
+      }
+    }
   };
 
   const handleAddNewTask = async (meetingId: string) => {
@@ -185,36 +202,40 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
     setNewTaskText('');
     setAddingTaskId(null);
 
-    setMeetings((prevMeetings) => {
-      const targetMeeting = prevMeetings.find((m) => m.id === meetingId);
-      if (!targetMeeting) return prevMeetings;
+    const targetMeeting = meetings.find((m) => m.id === meetingId);
+    if (!targetMeeting) return;
 
-      const existingItems = targetMeeting.summary?.action_items ? [...targetMeeting.summary.action_items] : [];
-      const newItem = {
-        task: taskTitle,
-        assignee: 'Unassigned',
-        status: 'pending' as const
-      };
-      const updatedItems = [...existingItems, newItem];
+    const existingItems = targetMeeting.summary?.action_items ? [...targetMeeting.summary.action_items] : [];
+    const newItem = {
+      task: taskTitle,
+      assignee: 'Unassigned',
+      status: 'pending' as const
+    };
+    const updatedItems = [...existingItems, newItem];
 
-      const updatedMeeting = {
-        ...targetMeeting,
-        summary: {
-          ...(targetMeeting.summary || { overview: '', key_points: [], decisions: [] }),
-          action_items: updatedItems
-        }
-      };
+    const updatedSummary = {
+      ...(targetMeeting.summary || { overview: '', key_points: [], decisions: [] }),
+      action_items: updatedItems
+    };
 
-      try {
-        localStorage.setItem(`meetwithai_action_items_${meetingId}`, JSON.stringify(updatedItems));
-      } catch {}
+    const updatedMeeting: MeetingRecord = {
+      ...targetMeeting,
+      summary: updatedSummary
+    };
 
-      updateMeetingActionItems(meetingId, updatedItems, updatedMeeting.summary).catch((err) => {
-        console.warn('Error syncing new action item to database:', err);
-      });
+    setMeetings((prevMeetings) =>
+      prevMeetings.map((m) => (m.id === meetingId ? updatedMeeting : m))
+    );
 
-      return prevMeetings.map((m) => (m.id === meetingId ? updatedMeeting : m));
-    });
+    try {
+      localStorage.setItem(`meetwithai_action_items_${meetingId}`, JSON.stringify(updatedItems));
+    } catch {}
+
+    try {
+      await updateMeetingActionItems(meetingId, updatedItems, updatedSummary);
+    } catch (err) {
+      console.warn('Error syncing new action item to database:', err);
+    }
   };
 
   const refreshMeetings = async () => {
@@ -612,59 +633,13 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
                 </div>
               </div>
 
-              {/* Action Items List on History Vault Card (Automatically added if unticked) */}
+              {/* Action Items Checklist on History Vault Card */}
               {(() => {
                 const actionItems = item.summary?.action_items || [];
-                const untickedItems = actionItems.filter((t) => t.status !== 'completed');
-                const completedCount = actionItems.length - untickedItems.length;
+                if (actionItems.length === 0 && addingTaskId !== item.id) return null;
 
-                if (untickedItems.length === 0 && addingTaskId !== item.id) {
-                  if (completedCount > 0) {
-                    return (
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '6px 12px',
-                          borderRadius: '8px',
-                          background: 'rgba(16, 185, 129, 0.06)',
-                          border: '1px solid rgba(16, 185, 129, 0.2)',
-                          fontSize: '12px'
-                        }}
-                      >
-                        <span style={{ color: 'var(--accent-emerald)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                          <Check size={13} />
-                          {language === 'zh'
-                            ? `已完成全部 ${completedCount} 项行动待办`
-                            : `All ${completedCount} action item${completedCount !== 1 ? 's' : ''} completed`}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setAddingTaskId(item.id)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            fontSize: '11.5px',
-                            color: 'var(--text-muted)',
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            fontWeight: 500
-                          }}
-                        >
-                          <Plus size={12} />
-                          {language === 'zh' ? '添加待办' : 'Add task'}
-                        </button>
-                      </div>
-                    );
-                  }
-                  return null;
-                }
+                const completedCount = actionItems.filter((t) => t.status === 'completed').length;
+                const allDone = actionItems.length > 0 && completedCount === actionItems.length;
 
                 return (
                   <div
@@ -672,18 +647,30 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
                     style={{
                       padding: '12px 14px',
                       borderRadius: '10px',
-                      background: 'rgba(99, 102, 241, 0.05)',
-                      border: '1px solid rgba(99, 102, 241, 0.2)',
+                      background: allDone ? 'rgba(16, 185, 129, 0.05)' : 'rgba(99, 102, 241, 0.05)',
+                      border: allDone ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(99, 102, 241, 0.2)',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: '8px'
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: 'var(--accent-primary)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        color: allDone ? 'var(--accent-emerald)' : 'var(--accent-primary)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.4px'
+                      }}>
                         <ListTodo size={14} />
-                        <span>{language === 'zh' ? '待办任务' : 'Open Action Items'} ({untickedItems.length})</span>
+                        <span>
+                          {language === 'zh' ? '行动待办' : 'Action Items'} ({completedCount}/{actionItems.length})
+                        </span>
                       </div>
+
                       <button
                         type="button"
                         onClick={() => setAddingTaskId(addingTaskId === item.id ? null : item.id)}
@@ -691,7 +678,7 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
                           background: 'none',
                           border: 'none',
                           fontSize: '11.5px',
-                          color: 'var(--accent-primary)',
+                          color: allDone ? 'var(--accent-emerald)' : 'var(--accent-primary)',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
@@ -706,45 +693,93 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
                       </button>
                     </div>
 
-                    {/* Unticked items list */}
+                    {/* Action Items List with Interactive Ticking Boxes */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {untickedItems.map((actionItem, idx) => {
-                        const originalIdx = actionItems.findIndex((a) => a === actionItem);
+                      {actionItems.map((actionItem, idx) => {
+                        const isDone = actionItem.status === 'completed';
                         return (
                           <div
                             key={idx}
-                            onClick={() => toggleActionItem(item.id, originalIdx)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleActionItem(item.id, actionItem.task);
+                            }}
+                            role="checkbox"
+                            aria-checked={isDone}
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === ' ' || e.key === 'Enter') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                toggleActionItem(item.id, actionItem.task);
+                              }
+                            }}
                             style={{
                               display: 'flex',
                               alignItems: 'center',
                               gap: '10px',
-                              padding: '7px 10px',
-                              borderRadius: '7px',
-                              background: 'var(--input-bg)',
-                              border: '1px solid var(--glass-border)',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              background: isDone ? 'rgba(16, 185, 129, 0.08)' : 'var(--input-bg)',
+                              border: isDone ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid var(--glass-border)',
                               cursor: 'pointer',
-                              transition: 'all 0.15s ease'
+                              transition: 'all 0.18s ease',
+                              userSelect: 'none'
                             }}
                             onMouseEnter={(e) => {
-                              e.currentTarget.style.borderColor = 'var(--accent-primary)';
-                              e.currentTarget.style.background = 'rgba(99, 102, 241, 0.08)';
+                              if (!isDone) {
+                                e.currentTarget.style.borderColor = 'var(--accent-primary)';
+                                e.currentTarget.style.background = 'rgba(99, 102, 241, 0.08)';
+                              }
                             }}
                             onMouseLeave={(e) => {
-                              e.currentTarget.style.borderColor = 'var(--glass-border)';
-                              e.currentTarget.style.background = 'var(--input-bg)';
+                              if (!isDone) {
+                                e.currentTarget.style.borderColor = 'var(--glass-border)';
+                                e.currentTarget.style.background = 'var(--input-bg)';
+                              }
                             }}
+                            title={isDone ? (language === 'zh' ? '点击取消完成' : 'Click to uncheck') : (language === 'zh' ? '点击标记为完成' : 'Click to complete')}
                           >
-                            <input
-                              type="checkbox"
-                              checked={false}
-                              onChange={() => toggleActionItem(item.id, originalIdx)}
-                              style={{ cursor: 'pointer', accentColor: 'var(--accent-primary)', width: '15px', height: '15px' }}
-                            />
-                            <span style={{ fontSize: '13px', color: 'var(--text-primary)', flex: 1, lineHeight: 1.4 }}>
+                            {/* Interactive Ticking Box */}
+                            <div
+                              style={{
+                                width: '18px',
+                                height: '18px',
+                                borderRadius: '5px',
+                                border: isDone ? 'none' : '1.5px solid var(--text-muted)',
+                                background: isDone ? 'var(--accent-emerald)' : 'var(--input-bg, #ffffff)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                                boxShadow: isDone ? '0 2px 6px rgba(16, 185, 129, 0.35)' : 'none',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              {isDone && <Check size={12} color="#ffffff" strokeWidth={3} />}
+                            </div>
+
+                            <span style={{
+                              fontSize: '13px',
+                              color: isDone ? 'var(--text-muted)' : 'var(--text-primary)',
+                              textDecoration: isDone ? 'line-through' : 'none',
+                              flex: 1,
+                              lineHeight: 1.4,
+                              transition: 'all 0.15s ease'
+                            }}>
                               {actionItem.task}
                             </span>
+
                             {actionItem.assignee && actionItem.assignee !== 'Unassigned' && (
-                              <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: 'rgba(99, 102, 241, 0.12)', color: 'var(--accent-primary)', flexShrink: 0, fontWeight: 500 }}>
+                              <span style={{
+                                fontSize: '11px',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: isDone ? 'rgba(100, 116, 139, 0.12)' : 'rgba(99, 102, 241, 0.12)',
+                                color: isDone ? 'var(--text-muted)' : 'var(--accent-primary)',
+                                flexShrink: 0,
+                                fontWeight: 500
+                              }}>
                                 @{actionItem.assignee}
                               </span>
                             )}
