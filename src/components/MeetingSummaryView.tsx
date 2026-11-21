@@ -227,10 +227,34 @@ ${transcript ? `\n## Transcript\n${transcript}\n` : ''}`;
     }
   };
 
+  // Scroll Reveal Observer: progressively reveals summary sections as the user scrolls
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-revealed');
+          }
+        });
+      },
+      {
+        threshold: 0.05,
+        rootMargin: '0px 0px -20px 0px'
+      }
+    );
+
+    const elements = document.querySelectorAll('.scroll-reveal');
+    elements.forEach((el) => observer.observe(el));
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [meetingId, title]);
+
   return (
     <div className="page-container" id="meeting-summary-report-card">
       {/* Top Bar Navigation */}
-      <div className="summary-topbar" style={{ justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+      <div className="summary-topbar scroll-reveal" style={{ justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
         <button onClick={onBack} className="btn-secondary" style={{ padding: '8px 14px', fontSize: '13px' }}>
           <ArrowLeft size={16} />
           {effectiveBackLabel}
@@ -255,7 +279,7 @@ ${transcript ? `\n## Transcript\n${transcript}\n` : ''}`;
       </div>
 
       {/* Main Title Banner Card */}
-      <div className="glass-panel" style={{ padding: '28px', marginBottom: '24px', position: 'relative', overflow: 'hidden' }}>
+      <div className="glass-panel scroll-reveal scroll-reveal-delay-1" style={{ padding: '28px', marginBottom: '24px', position: 'relative', overflow: 'hidden' }}>
         <div style={{
           position: 'absolute',
           top: '-40px',
@@ -420,7 +444,7 @@ ${transcript ? `\n## Transcript\n${transcript}\n` : ''}`;
       {/* Two Column Grid: Key Points & Decisions */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px', marginBottom: '24px' }}>
         {/* Key Points */}
-        <div className="glass-panel" style={{ padding: '24px' }}>
+        <div className="glass-panel scroll-reveal scroll-reveal-delay-2" style={{ padding: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
             <FileText size={18} color="var(--accent-primary)" />
             <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)' }}>
@@ -438,7 +462,7 @@ ${transcript ? `\n## Transcript\n${transcript}\n` : ''}`;
         </div>
 
         {/* Decisions */}
-        <div className="glass-panel" style={{ padding: '24px' }}>
+        <div className="glass-panel scroll-reveal scroll-reveal-delay-3" style={{ padding: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
             <CheckCircle2 size={18} color="var(--accent-emerald)" />
             <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)' }}>
@@ -474,7 +498,7 @@ ${transcript ? `\n## Transcript\n${transcript}\n` : ''}`;
       </div>
 
       {/* Action Items Section */}
-      <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+      <div className="glass-panel scroll-reveal scroll-reveal-delay-4" style={{ padding: '24px', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '18px' }}>
           <ListTodo size={18} color="var(--accent-purple)" />
           <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)' }}>

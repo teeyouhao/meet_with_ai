@@ -250,6 +250,31 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
     };
   }, []);
 
+  // Scroll Reveal Observer: progressively reveals vault cards as the user scrolls
+  useEffect(() => {
+    if (isLoading) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-revealed');
+          }
+        });
+      },
+      {
+        threshold: 0.05,
+        rootMargin: '0px 0px -20px 0px'
+      }
+    );
+
+    const elements = document.querySelectorAll('.scroll-reveal');
+    elements.forEach((el) => observer.observe(el));
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [isLoading, meetings.length, searchQuery]);
+
   const handleDelete = async (e: React.MouseEvent, meeting: MeetingRecord) => {
     e.stopPropagation(); // Don't open the meeting
     if (!confirm(language === 'zh' ? `确定要删除“${meeting.title}”吗？此操作无法撤销。` : `Delete "${meeting.title}"? This cannot be undone.`)) return;
@@ -310,7 +335,7 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
   return (
     <div className="page-container">
       {/* Search & Header */}
-      <div className="glass-panel" style={{ padding: '20px 24px', marginBottom: '24px' }}>
+      <div className="glass-panel scroll-reveal" style={{ padding: '20px 24px', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
           <div>
             <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-heading)' }}>
@@ -394,10 +419,10 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {filteredMeetings.map((item) => (
+          {filteredMeetings.map((item, idx) => (
             <div
               key={item.id}
-              className="glass-panel"
+              className={`glass-panel scroll-reveal scroll-reveal-delay-${(idx % 4) + 1}`}
               style={{
                 padding: '20px 24px',
                 display: 'flex',
