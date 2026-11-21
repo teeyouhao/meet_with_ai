@@ -34,6 +34,13 @@ In the previous design, querying an individual meeting required navigating into 
 - **BUG-003 (Git Commit Misattributed Author):** Identity must be `teeyouhao <yhtee2007@gmail.com>`.
 - **BUG-004 (Premature Completion Slop - Vibes over Proof):** Prohibits completion claims without executing `scripts/verify.bat` and confirming exit code 0.
 
+### 2.4 User Core Aesthetic & UX Preferences (Notion Memory Sync)
+- **Simplified Design & Low Chrome:** Clean, airy, distraction-free aesthetic with high signal-to-noise ratio.
+- **Selection Lists over Multi-Widget Clutter:** Prefer compact selection lists, pickers, dropdowns, and segmented pills over proliferating multiple disparate widgets.
+- **Glassmorphic Navigation Bar:** Navigation bar (dock/header) must feature high-end frosted glassmorphism (`backdrop-filter: blur`, subtle translucent border, specular reflections).
+- **Minimalist Containers:** Avoid heavy box/card nesting and container sprawl ("don't want much container"). Use content-first breathing room rather than rigid multi-layered borders.
+- **Mobile First:** Elements beside the audio wave and controls must maintain zero horizontal squeeze on small viewports.
+
 ---
 
 ## 3. Detailed Technical Requirements
