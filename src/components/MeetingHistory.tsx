@@ -9,9 +9,17 @@ import {
   Pause,
   Pencil,
   Check,
-  X
+  X,
+  ListTodo,
+  Plus
 } from 'lucide-react';
-import { fetchMeetings, deleteMeeting, updateMeetingTitle, type MeetingRecord } from '../services/supabase';
+import {
+  fetchMeetings,
+  deleteMeeting,
+  updateMeetingTitle,
+  updateMeetingActionItems,
+  type MeetingRecord
+} from '../services/supabase';
 import { useLanguage } from '../context/LanguageContext';
 
 export const GeminiStarIcon: React.FC<{ size?: number; className?: string; style?: React.CSSProperties }> = ({
@@ -92,6 +100,8 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [editingTitleValue, setEditingTitleValue] = useState('');
   const [isSavingTitle, setIsSavingTitle] = useState(false);
+  const [addingTaskId, setAddingTaskId] = useState<string | null>(null);
+  const [newTaskText, setNewTaskText] = useState('');
 
   const mergeLocalStorage = (list: MeetingRecord[]): MeetingRecord[] => {
     return list.map((m) => {
@@ -114,17 +124,96 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
               return dbItem;
             });
 
+            // Also keep any newly added items from parsed that are not in dbItems yet
+            const extraLocalItems = parsed.filter(
+              (p: { task?: string }) => !dbItems.some((d) => d.task?.trim().toLowerCase() === p.task?.trim().toLowerCase())
+            );
+            const allItems = [...mergedItems, ...extraLocalItems];
+
             return {
               ...m,
               summary: {
                 ...m.summary,
-                action_items: mergedItems.length > 0 ? mergedItems : parsed
+                action_items: allItems.length > 0 ? allItems : parsed
               }
             };
           }
         }
       } catch {}
       return m;
+    });
+  };
+
+  const toggleActionItem = async (meetingId: string, itemIdx: number) => {
+    setMeetings((prevMeetings) => {
+      const targetMeeting = prevMeetings.find((m) => m.id === meetingId);
+      if (!targetMeeting || !targetMeeting.summary?.action_items) return prevMeetings;
+
+      const currentItems = [...targetMeeting.summary.action_items];
+      if (!currentItems[itemIdx]) return prevMeetings;
+
+      const currentStatus = currentItems[itemIdx].status;
+      const nextStatus: 'pending' | 'completed' = currentStatus === 'completed' ? 'pending' : 'completed';
+      currentItems[itemIdx] = {
+        ...currentItems[itemIdx],
+        status: nextStatus
+      };
+
+      const updatedMeeting = {
+        ...targetMeeting,
+        summary: {
+          ...targetMeeting.summary,
+          action_items: currentItems
+        }
+      };
+
+      try {
+        localStorage.setItem(`meetwithai_action_items_${meetingId}`, JSON.stringify(currentItems));
+      } catch {}
+
+      updateMeetingActionItems(meetingId, currentItems, updatedMeeting.summary).catch((err) => {
+        console.warn('Error syncing action item toggle to database:', err);
+      });
+
+      return prevMeetings.map((m) => (m.id === meetingId ? updatedMeeting : m));
+    });
+  };
+
+  const handleAddNewTask = async (meetingId: string) => {
+    if (!newTaskText.trim()) return;
+    const taskTitle = newTaskText.trim();
+    setNewTaskText('');
+    setAddingTaskId(null);
+
+    setMeetings((prevMeetings) => {
+      const targetMeeting = prevMeetings.find((m) => m.id === meetingId);
+      if (!targetMeeting) return prevMeetings;
+
+      const existingItems = targetMeeting.summary?.action_items ? [...targetMeeting.summary.action_items] : [];
+      const newItem = {
+        task: taskTitle,
+        assignee: 'Unassigned',
+        status: 'pending' as const
+      };
+      const updatedItems = [...existingItems, newItem];
+
+      const updatedMeeting = {
+        ...targetMeeting,
+        summary: {
+          ...(targetMeeting.summary || { overview: '', key_points: [], decisions: [] }),
+          action_items: updatedItems
+        }
+      };
+
+      try {
+        localStorage.setItem(`meetwithai_action_items_${meetingId}`, JSON.stringify(updatedItems));
+      } catch {}
+
+      updateMeetingActionItems(meetingId, updatedItems, updatedMeeting.summary).catch((err) => {
+        console.warn('Error syncing new action item to database:', err);
+      });
+
+      return prevMeetings.map((m) => (m.id === meetingId ? updatedMeeting : m));
     });
   };
 
@@ -214,6 +303,10 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
     return m > 0 ? `${m}${t.vault.durationMin} ${s}${t.vault.durationSec}` : `${s}${t.vault.durationSec}`;
   };
 
+  const totalPendingTasks = meetings.reduce((sum, m) => {
+    return sum + (m.summary?.action_items || []).filter((t) => t.status !== 'completed').length;
+  }, 0);
+
   return (
     <div className="page-container">
       {/* Search & Header */}
@@ -225,6 +318,11 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
             </h2>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
               {meetings.length} {language === 'zh' ? '场会议记录' : `meeting${meetings.length !== 1 ? 's' : ''}`}
+              {totalPendingTasks > 0 && (
+                <span style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>
+                  {' • '}{totalPendingTasks} {language === 'zh' ? '项未完成行动项' : `open task${totalPendingTasks !== 1 ? 's' : ''}`}
+                </span>
+              )}
             </p>
           </div>
 
@@ -488,6 +586,195 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting,
                   </button>
                 </div>
               </div>
+
+              {/* Action Items List on History Vault Card (Automatically added if unticked) */}
+              {(() => {
+                const actionItems = item.summary?.action_items || [];
+                const untickedItems = actionItems.filter((t) => t.status !== 'completed');
+                const completedCount = actionItems.length - untickedItems.length;
+
+                if (untickedItems.length === 0 && addingTaskId !== item.id) {
+                  if (completedCount > 0) {
+                    return (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          background: 'rgba(16, 185, 129, 0.06)',
+                          border: '1px solid rgba(16, 185, 129, 0.2)',
+                          fontSize: '12px'
+                        }}
+                      >
+                        <span style={{ color: 'var(--accent-emerald)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          <Check size={13} />
+                          {language === 'zh'
+                            ? `已完成全部 ${completedCount} 项行动待办`
+                            : `All ${completedCount} action item${completedCount !== 1 ? 's' : ''} completed`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setAddingTaskId(item.id)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            fontSize: '11.5px',
+                            color: 'var(--text-muted)',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontWeight: 500
+                          }}
+                        >
+                          <Plus size={12} />
+                          {language === 'zh' ? '添加待办' : 'Add task'}
+                        </button>
+                      </div>
+                    );
+                  }
+                  return null;
+                }
+
+                return (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: '10px',
+                      background: 'rgba(99, 102, 241, 0.05)',
+                      border: '1px solid rgba(99, 102, 241, 0.2)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: 'var(--accent-primary)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                        <ListTodo size={14} />
+                        <span>{language === 'zh' ? '待办任务' : 'Open Action Items'} ({untickedItems.length})</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAddingTaskId(addingTaskId === item.id ? null : item.id)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          fontSize: '11.5px',
+                          color: 'var(--accent-primary)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          fontWeight: 600,
+                          padding: '2px 6px',
+                          borderRadius: '4px'
+                        }}
+                      >
+                        <Plus size={12} />
+                        <span>{language === 'zh' ? '添加待办' : 'Add Task'}</span>
+                      </button>
+                    </div>
+
+                    {/* Unticked items list */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {untickedItems.map((actionItem, idx) => {
+                        const originalIdx = actionItems.findIndex((a) => a === actionItem);
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => toggleActionItem(item.id, originalIdx)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              padding: '7px 10px',
+                              borderRadius: '7px',
+                              background: 'var(--input-bg)',
+                              border: '1px solid var(--glass-border)',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.borderColor = 'var(--accent-primary)';
+                              e.currentTarget.style.background = 'rgba(99, 102, 241, 0.08)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.borderColor = 'var(--glass-border)';
+                              e.currentTarget.style.background = 'var(--input-bg)';
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={false}
+                              onChange={() => toggleActionItem(item.id, originalIdx)}
+                              style={{ cursor: 'pointer', accentColor: 'var(--accent-primary)', width: '15px', height: '15px' }}
+                            />
+                            <span style={{ fontSize: '13px', color: 'var(--text-primary)', flex: 1, lineHeight: 1.4 }}>
+                              {actionItem.task}
+                            </span>
+                            {actionItem.assignee && actionItem.assignee !== 'Unassigned' && (
+                              <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: 'rgba(99, 102, 241, 0.12)', color: 'var(--accent-primary)', flexShrink: 0, fontWeight: 500 }}>
+                                @{actionItem.assignee}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Inline Add Task Form */}
+                    {addingTaskId === item.id && (
+                      <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                        <input
+                          type="text"
+                          value={newTaskText}
+                          onChange={(e) => setNewTaskText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleAddNewTask(item.id);
+                            if (e.key === 'Escape') setAddingTaskId(null);
+                          }}
+                          placeholder={language === 'zh' ? '输入新的待办任务...' : 'New action item...'}
+                          autoFocus
+                          style={{
+                            flex: 1,
+                            padding: '6px 10px',
+                            fontSize: '12.5px',
+                            borderRadius: '6px',
+                            background: 'var(--input-bg)',
+                            border: '1px solid var(--accent-primary)',
+                            color: 'var(--text-primary)',
+                            outline: 'none'
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAddNewTask(item.id)}
+                          className="btn-primary"
+                          style={{ padding: '4px 10px', fontSize: '12px', borderRadius: '6px' }}
+                          title="Save action item"
+                        >
+                          <Check size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAddingTaskId(null)}
+                          className="btn-secondary"
+                          style={{ padding: '4px 8px', fontSize: '12px', borderRadius: '6px' }}
+                          title="Cancel"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Audio Playback Row (only if recording was saved) */}
               {item.audio_url && (

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { isMobileDevice, supportsDisplayMediaAudio } from '../utils/device';
 
 export type DominantSpeaker = 'host' | 'remote' | 'mixed' | 'idle';
 
@@ -27,6 +28,7 @@ export interface UseAudioRecorderReturn {
   tabLevel: number;
   activeSpeaker: DominantSpeaker;
   isStereoSeparated: boolean;
+  isMobileMeetingMode: boolean;
   captureMode: 'mic' | 'system';
   startRecording: (mode?: 'mic' | 'system') => Promise<void>;
   stopRecording: () => void;
@@ -43,6 +45,7 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
   const [tabLevel, setTabLevel] = useState(0);
   const [activeSpeaker, setActiveSpeaker] = useState<DominantSpeaker>('idle');
   const [isStereoSeparated, setIsStereoSeparated] = useState(false);
+  const [isMobileMeetingMode, setIsMobileMeetingMode] = useState(false);
   const [captureMode, setCaptureMode] = useState<'mic' | 'system'>('mic');
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -91,6 +94,7 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
     setTabLevel(0);
     setActiveSpeaker('idle');
     setIsStereoSeparated(false);
+    setIsMobileMeetingMode(false);
   }, []);
 
   const startAnalysis = useCallback((stream: MediaStream) => {
@@ -295,100 +299,142 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
       let audioStreamToRecord: MediaStream;
 
       if (mode === 'system') {
-        // Tab / System audio via getDisplayMedia
-        const displayStream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true
-          }
-        });
-        displayStreamRef.current = displayStream;
+        const isMobile = isMobileDevice();
+        const canCaptureDisplayAudio = supportsDisplayMediaAudio();
 
-        const audioTracks = displayStream.getAudioTracks();
-        if (audioTracks.length > 0) {
-          // Attempt to mix microphone with tab audio so both meeting attendees
-          // and user's microphone speech are cleanly recorded
+        if (isMobile || !canCaptureDisplayAudio) {
+          // Mobile Meeting / Speakerphone Mode:
+          // Mobile OS security sandboxes (iOS and Android) forbid web browsers from directly intercepting
+          // audio output from other native apps (Zoom, Teams, Google Meet, YouTube).
+          // We activate wide-band, high-gain acoustic room capture: disabling echoCancellation & noiseSuppression
+          // so loudspeaker / speakerphone / meeting audio is NOT filtered out as "echo/background noise".
+          let mobileStream: MediaStream;
           try {
-            const micStream = await navigator.mediaDevices.getUserMedia({
+            mobileStream = await navigator.mediaDevices.getUserMedia({
               audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: true,
+                channelCount: { ideal: 2 }
               }
             });
-            micStreamRef.current = micStream;
-
-            const AudioCtx =
-              window.AudioContext ||
-              (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-            if (!AudioCtx) throw new Error('AudioContext unsupported');
-            const mixContext = new AudioCtx();
-            mixAudioContextRef.current = mixContext;
-            const destination = mixContext.createMediaStreamDestination();
-            destination.channelCount = 2; // Stereo destination
-
-            // Create 2-channel merger (Channel 0 = Left / Mic, Channel 1 = Right / Tab)
-            const merger = mixContext.createChannelMerger(2);
-
-            const tabSource = mixContext.createMediaStreamSource(new MediaStream(audioTracks));
-            const micSource = mixContext.createMediaStreamSource(micStream);
-
-            // Create separate Analysers for Mic and Tab to monitor vocal energy
-            const micAnalyser = mixContext.createAnalyser();
-            micAnalyser.fftSize = 64;
-            micSource.connect(micAnalyser);
-            micAnalyserRef.current = micAnalyser;
-
-            const tabAnalyser = mixContext.createAnalyser();
-            tabAnalyser.fftSize = 64;
-            tabSource.connect(tabAnalyser);
-            tabAnalyserRef.current = tabAnalyser;
-
-            // Route mic (Host) to Channel 0 (LEFT)
-            micSource.connect(merger, 0, 0);
-
-            // Route tab (Remote attendees) to Channel 1 (RIGHT)
-            tabSource.connect(merger, 0, 1);
-
-            // Connect stereo merger to destination
-            merger.connect(destination);
-
-            audioStreamToRecord = destination.stream;
-            setIsStereoSeparated(true);
           } catch {
-            // If mic access denied or busy, capture tab audio alone
-            audioStreamToRecord = new MediaStream(audioTracks);
-            setIsStereoSeparated(false);
+            mobileStream = await navigator.mediaDevices.getUserMedia({ audio: true });
           }
+          audioStreamToRecord = mobileStream;
+          setIsMobileMeetingMode(true);
+          setIsStereoSeparated(false);
         } else {
-          // Graceful fallback to microphone if user didn't check audio share
+          // Desktop Browser: Tab / System audio via getDisplayMedia
+          let desktopDisplayStream: MediaStream | null = null;
           try {
-            const micFallback = await navigator.mediaDevices.getUserMedia({
+            desktopDisplayStream = await navigator.mediaDevices.getDisplayMedia({
+              video: true,
               audio: {
                 echoCancellation: true,
-                noiseSuppression: true,
+                noiseSuppression: true
+              }
+            });
+            displayStreamRef.current = desktopDisplayStream;
+
+            const audioTracks = desktopDisplayStream.getAudioTracks();
+            if (audioTracks.length > 0) {
+              // Attempt to mix microphone with tab audio so both meeting attendees
+              // and user's microphone speech are cleanly recorded
+              try {
+                const micStream = await navigator.mediaDevices.getUserMedia({
+                  audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                  }
+                });
+                micStreamRef.current = micStream;
+
+                const AudioCtx =
+                  window.AudioContext ||
+                  (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+                if (!AudioCtx) throw new Error('AudioContext unsupported');
+                const mixContext = new AudioCtx();
+                mixAudioContextRef.current = mixContext;
+                const destination = mixContext.createMediaStreamDestination();
+                destination.channelCount = 2; // Stereo destination
+
+                // Create 2-channel merger (Channel 0 = Left / Mic, Channel 1 = Right / Tab)
+                const merger = mixContext.createChannelMerger(2);
+
+                const tabSource = mixContext.createMediaStreamSource(new MediaStream(audioTracks));
+                const micSource = mixContext.createMediaStreamSource(micStream);
+
+                // Create separate Analysers for Mic and Tab to monitor vocal energy
+                const micAnalyser = mixContext.createAnalyser();
+                micAnalyser.fftSize = 64;
+                micSource.connect(micAnalyser);
+                micAnalyserRef.current = micAnalyser;
+
+                const tabAnalyser = mixContext.createAnalyser();
+                tabAnalyser.fftSize = 64;
+                tabSource.connect(tabAnalyser);
+                tabAnalyserRef.current = tabAnalyser;
+
+                // Route mic (Host) to Channel 0 (LEFT)
+                micSource.connect(merger, 0, 0);
+
+                // Route tab (Remote attendees) to Channel 1 (RIGHT)
+                tabSource.connect(merger, 0, 1);
+
+                // Connect stereo merger to destination
+                merger.connect(destination);
+
+                audioStreamToRecord = destination.stream;
+                setIsStereoSeparated(true);
+              } catch {
+                // If mic access denied or busy, capture tab audio alone
+                audioStreamToRecord = new MediaStream(audioTracks);
+                setIsStereoSeparated(false);
+              }
+            } else {
+              // User shared screen without checking "Share audio", or platform didn't provide audio tracks.
+              // Stop video track immediately so screen recording icon turns off:
+              desktopDisplayStream.getTracks().forEach((t) => t.stop());
+              displayStreamRef.current = null;
+
+              // Seamlessly fallback to high-gain microphone so recording starts without failing
+              const micFallback = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                  echoCancellation: false,
+                  noiseSuppression: false,
+                  autoGainControl: true
+                }
+              });
+              audioStreamToRecord = micFallback;
+              setIsMobileMeetingMode(true);
+              setIsStereoSeparated(false);
+            }
+
+            desktopDisplayStream.getVideoTracks().forEach((track) => {
+              track.onended = () => {
+                console.log('[AudioRecorder] Video share stream track ended; audio capture continues.');
+              };
+            });
+          } catch (displayErr) {
+            // User cancelled screen share dialog (NotAllowedError) or getDisplayMedia failed:
+            // Fallback gracefully to high-gain room microphone rather than crashing the session!
+            console.warn('[AudioRecorder] getDisplayMedia cancelled or unavailable, falling back to meeting mic:', displayErr);
+            const micFallback = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: false,
+                noiseSuppression: false,
                 autoGainControl: true
               }
             });
             audioStreamToRecord = micFallback;
-          } catch (err) {
-            displayStream.getTracks().forEach((t) => t.stop());
-            displayStreamRef.current = null;
-            throw new Error(
-              'No audio stream found. Please check "Share audio" in the sharing dialog, or click "In-Room Mic".',
-              { cause: err }
-            );
+            setIsMobileMeetingMode(true);
+            setIsStereoSeparated(false);
           }
         }
-
-        displayStream.getVideoTracks().forEach((track) => {
-          track.onended = () => {
-            console.log('[AudioRecorder] Video share stream track ended; audio capture continues until user stops.');
-          };
-        });
       } else {
-        // Microphone audio (iOS Safari, Android Chrome, Desktop)
+        // Standard in-room microphone audio (iOS Safari, Android Chrome, Desktop)
         const micStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -517,6 +563,7 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
     tabLevel,
     activeSpeaker,
     isStereoSeparated,
+    isMobileMeetingMode,
     captureMode,
     startRecording,
     stopRecording,

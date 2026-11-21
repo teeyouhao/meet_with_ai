@@ -12,8 +12,6 @@ import {
   User,
   Search,
   Bell,
-  Sparkles,
-  Brain,
   ShieldAlert
 } from 'lucide-react';
 import {
@@ -26,7 +24,6 @@ import {
   type InsightTaskRecord
 } from '../services/supabase';
 import { fetchDeadlineAlerts, requestNotificationPermission, type DeadlineAlert } from '../services/alerts';
-import { searchSemanticMemory, indexAllMeetings, type SemanticMemoryMatch } from '../services/memory';
 import { useLanguage } from '../context/LanguageContext';
 
 export const AnalyticsWidgets: React.FC = () => {
@@ -40,14 +37,6 @@ export const AnalyticsWidgets: React.FC = () => {
   const [notificationsGranted, setNotificationsGranted] = useState(
     typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
   );
-
-  // Vector memory search state
-  const [memoryQuery, setMemoryQuery] = useState('');
-  const [memoryResults, setMemoryResults] = useState<SemanticMemoryMatch[]>([]);
-  const [isSearchingMemory, setIsSearchingMemory] = useState(false);
-  const [hasSearchedMemory, setHasSearchedMemory] = useState(false);
-  const [isIndexingMemory, setIsIndexingMemory] = useState(false);
-  const [memoryIndexMessage, setMemoryIndexMessage] = useState<string | null>(null);
 
   // Form input state
   const [newTaskText, setNewTaskText] = useState('');
@@ -80,40 +69,34 @@ export const AnalyticsWidgets: React.FC = () => {
     };
   }, []);
 
+  // Scroll Reveal Observer: progressively reveals sections as the user scrolls
+  useEffect(() => {
+    if (isLoading) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-revealed');
+          }
+        });
+      },
+      {
+        threshold: 0.08,
+        rootMargin: '0px 0px -30px 0px'
+      }
+    );
+
+    const elements = document.querySelectorAll('.scroll-reveal');
+    elements.forEach((el) => observer.observe(el));
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [isLoading]);
+
   const handleRequestNotifications = async () => {
     const granted = await requestNotificationPermission();
     setNotificationsGranted(granted);
-  };
-
-  const handleSearchMemory = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!memoryQuery.trim()) return;
-    setIsSearchingMemory(true);
-    setHasSearchedMemory(true);
-    try {
-      const results = await searchSemanticMemory(memoryQuery.trim());
-      setMemoryResults(results);
-    } finally {
-      setIsSearchingMemory(false);
-    }
-  };
-
-  const handleReindexMemory = async () => {
-    setIsIndexingMemory(true);
-    setMemoryIndexMessage(null);
-    try {
-      const res = await indexAllMeetings();
-      setMemoryIndexMessage(
-        language === 'zh'
-          ? `已成功索引 ${res.meetingsProcessed} 场会议（共 ${res.totalChunksIndexed} 个语义向量块）`
-          : `Indexed ${res.meetingsProcessed} meetings (${res.totalChunksIndexed} vector memory chunks)`
-      );
-      setTimeout(() => setMemoryIndexMessage(null), 5000);
-    } catch {
-      setMemoryIndexMessage('Indexing failed.');
-    } finally {
-      setIsIndexingMemory(false);
-    }
   };
 
   // Toggle action item completion
@@ -231,7 +214,7 @@ export const AnalyticsWidgets: React.FC = () => {
   return (
     <div className="page-container" style={{ maxWidth: '1040px' }}>
       {/* Page Header */}
-      <div style={{ marginBottom: '24px' }}>
+      <div className="scroll-reveal" style={{ marginBottom: '24px' }}>
         <h1 className="ios-large-title" style={{ marginBottom: '6px' }}>
           {t.insights.title}
         </h1>
@@ -243,7 +226,7 @@ export const AnalyticsWidgets: React.FC = () => {
       {/* Autonomous Deadline Alert Banner (Event-Driven Worker) */}
       {alerts.length > 0 && (
         <div
-          className="glass-panel"
+          className="glass-panel scroll-reveal"
           style={{
             padding: '18px 20px',
             marginBottom: '24px',
@@ -348,7 +331,7 @@ export const AnalyticsWidgets: React.FC = () => {
         marginBottom: '24px'
       }}>
         {/* Metric 1: Sessions */}
-        <div className="glass-panel insight-metrics-card" style={{ padding: '20px' }}>
+        <div className="glass-panel insight-metrics-card scroll-reveal scroll-reveal-delay-1" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
               {t.insights.vaultSessions}
@@ -374,7 +357,7 @@ export const AnalyticsWidgets: React.FC = () => {
         </div>
 
         {/* Metric 2: Duration */}
-        <div className="glass-panel insight-metrics-card" style={{ padding: '20px' }}>
+        <div className="glass-panel insight-metrics-card scroll-reveal scroll-reveal-delay-2" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
               {t.insights.recordedTime}
@@ -396,7 +379,7 @@ export const AnalyticsWidgets: React.FC = () => {
         </div>
 
         {/* Metric 3: Insight Tasks */}
-        <div className="glass-panel insight-metrics-card" style={{ padding: '20px' }}>
+        <div className="glass-panel insight-metrics-card scroll-reveal scroll-reveal-delay-3" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
               {t.insights.insightTasks}
@@ -418,7 +401,7 @@ export const AnalyticsWidgets: React.FC = () => {
         </div>
 
         {/* Metric 4: Completion Rate */}
-        <div className="glass-panel insight-metrics-card" style={{ padding: '20px' }}>
+        <div className="glass-panel insight-metrics-card scroll-reveal scroll-reveal-delay-4" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
               {t.insights.completionRate}
@@ -443,7 +426,7 @@ export const AnalyticsWidgets: React.FC = () => {
       </div>
 
       {/* Weekly Activity Volume Chart */}
-      <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+      <div className="glass-panel scroll-reveal" style={{ padding: '24px', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
           <div>
             <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
@@ -576,181 +559,8 @@ export const AnalyticsWidgets: React.FC = () => {
         </div>
       </div>
 
-      {/* DEEP INTELLIGENCE: SEMANTIC VECTOR MEMORY (TRACK 2) */}
-      <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{
-              width: '34px',
-              height: '34px',
-              borderRadius: '9px',
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.25) 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <Brain size={20} color="var(--accent-primary)" />
-            </div>
-            <div>
-              <h2 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, fontFamily: 'var(--font-heading)' }}>
-                {t.insights.vectorMemoryTitle}
-              </h2>
-              <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>
-                {t.insights.vectorMemorySubtitle}
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleReindexMemory}
-            disabled={isIndexingMemory}
-            className="btn-secondary"
-            style={{ fontSize: '12px', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <Sparkles size={14} color="var(--accent-purple)" />
-            {isIndexingMemory ? t.insights.reindexing : t.insights.reindexMemory}
-          </button>
-        </div>
-
-        {memoryIndexMessage && (
-          <div style={{
-            fontSize: '12px',
-            color: 'var(--accent-emerald)',
-            background: 'rgba(16, 185, 129, 0.1)',
-            padding: '8px 12px',
-            borderRadius: '6px',
-            marginBottom: '14px',
-            border: '1px solid rgba(16, 185, 129, 0.2)'
-          }}>
-            {memoryIndexMessage}
-          </div>
-        )}
-
-        {/* Semantic Query Input */}
-        <form onSubmit={handleSearchMemory} style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
-            <Search
-              size={16}
-              style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: 'var(--text-muted)',
-                pointerEvents: 'none'
-              }}
-            />
-            <input
-              type="text"
-              value={memoryQuery}
-              onChange={(e) => setMemoryQuery(e.target.value)}
-              placeholder={t.insights.searchMemoryPlaceholder}
-              className="search-input"
-              style={{
-                width: '100%',
-                paddingLeft: '36px',
-                paddingRight: '12px',
-                height: '38px',
-                borderRadius: '8px',
-                fontSize: '13px'
-              }}
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={isSearchingMemory || !memoryQuery.trim()}
-            className="btn-primary"
-            style={{
-              padding: '0 18px',
-              height: '38px',
-              fontSize: '13px',
-              fontWeight: 600,
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            <Sparkles size={14} />
-            {isSearchingMemory ? (language === 'zh' ? '正在匹配…' : 'Querying…') : (language === 'zh' ? '智能检索' : 'Search Memory')}
-          </button>
-        </form>
-
-        {/* Semantic Matches List */}
-        {hasSearchedMemory && (
-          <div style={{ marginTop: '12px' }}>
-            {memoryResults.length === 0 ? (
-              <div style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '16px', textAlign: 'center' }}>
-                {t.insights.noMemoryFound}
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {memoryResults.map((match, idx) => {
-                  const simPct = Math.round((match.similarity || 0) * 100);
-                  const typeColors: Record<string, string> = {
-                    decision: '#10b981',
-                    key_point: '#6366f1',
-                    action_item: '#f59e0b',
-                    summary: '#a855f7'
-                  };
-                  const color = typeColors[match.chunk_type] || 'var(--accent-primary)';
-
-                  return (
-                    <div
-                      key={match.id || idx}
-                      style={{
-                        padding: '12px 14px',
-                        borderRadius: '8px',
-                        background: 'rgba(255, 255, 255, 0.03)',
-                        border: '1px solid var(--glass-border)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '6px'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span
-                            style={{
-                              fontSize: '10.5px',
-                              fontWeight: 700,
-                              textTransform: 'uppercase',
-                              padding: '2px 8px',
-                              borderRadius: '10px',
-                              background: `${color}20`,
-                              color: color,
-                              border: `1px solid ${color}40`
-                            }}
-                          >
-                            {match.chunk_type.replace('_', ' ')}
-                          </span>
-                          {match.metadata?.title && (
-                            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                              {match.metadata.title}
-                            </span>
-                          )}
-                        </div>
-
-                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--accent-emerald)' }}>
-                          {simPct}% match
-                        </span>
-                      </div>
-
-                      <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
-                        {match.chunk_text}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
       {/* DEDICATED ACTION ITEMS TABLE SECTION (INSIGHT TAB) */}
-      <div className="glass-panel" style={{ padding: '26px' }}>
+      <div className="glass-panel scroll-reveal" style={{ padding: '26px' }}>
         {/* Table Header & Controls */}
         <div style={{
           display: 'flex',

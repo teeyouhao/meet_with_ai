@@ -11,10 +11,11 @@ import {
 } from 'lucide-react';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useAudioRecorder, type DominantSpeaker } from '../hooks/useAudioRecorder';
+import { isMobileDevice } from '../utils/device';
 import { AudioVisualizer } from './AudioVisualizer';
 import { PipelineStatus } from './PipelineStatus';
 import { summarizeMeeting, type SummarizeResult } from '../services/summarizer';
-import { saveMeetingWithItems } from '../services/supabase';
+import { saveMeetingWithItems, fetchMeetings } from '../services/supabase';
 import {
   transcribeAudioWithWhisper,
   cleanWhisperChunk,
@@ -83,6 +84,7 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
   onSummarizingStateChange
 }) => {
   const { t, language } = useLanguage();
+  const isMobile = isMobileDevice();
   const [meetingTitle, setMeetingTitle] = useState('');
   const [hasStarted, setHasStarted] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
@@ -201,6 +203,7 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
     audioLevel,
     activeSpeaker,
     isStereoSeparated,
+    isMobileMeetingMode,
     captureMode,
     audioBlob,
     startRecording,
@@ -377,6 +380,43 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
 
       setActiveTier(result.tierUsed as 'cloud' | 'local-webgpu' | 'heuristic');
 
+      // Automatically carry over unticked action items from the history vault if any exist
+      try {
+        const vaultMeetings = await fetchMeetings();
+        if (vaultMeetings && vaultMeetings.length > 0) {
+          const carriedOverItems: Array<{ task: string; assignee: string; status: 'pending' }> = [];
+          for (const vm of vaultMeetings.slice(0, 5)) {
+            const pastTasks = vm.summary?.action_items || [];
+            for (const pt of pastTasks) {
+              if (
+                pt.status !== 'completed' &&
+                pt.task &&
+                !result.summary.action_items?.some(
+                  (cur) => cur.task.toLowerCase().trim() === pt.task.toLowerCase().trim()
+                ) &&
+                !carriedOverItems.some(
+                  (c) => c.task.toLowerCase().trim() === pt.task.toLowerCase().trim()
+                )
+              ) {
+                carriedOverItems.push({
+                  task: pt.task,
+                  assignee: pt.assignee || 'Unassigned',
+                  status: 'pending'
+                });
+              }
+            }
+          }
+          if (carriedOverItems.length > 0) {
+            result.summary.action_items = [
+              ...(result.summary.action_items || []),
+              ...carriedOverItems
+            ];
+          }
+        }
+      } catch (carryErr) {
+        console.warn('Note: Rollover unticked items check:', carryErr);
+      }
+
       let savedMeetingId: string | undefined;
       // Automatically persist to Supabase database
       try {
@@ -515,6 +555,24 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
                   )}
                 </div>
               )}
+
+              {isMobileMeetingMode && isRecording && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  background: 'rgba(56, 189, 248, 0.1)',
+                  border: '1px solid rgba(56, 189, 248, 0.28)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: '#38bdf8'
+                }}>
+                  <span>📱</span>
+                  <span>{language === 'zh' ? '免提拾音模式 (增强)' : 'Mobile Meeting Mode (High Gain)'}</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -546,10 +604,10 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
                   id="btn-record-screen"
                   onClick={() => handleStartCapture('system')}
                   className="btn-secondary"
-                  title={t.studio.tabPermissionPrompt}
+                  title={isMobile ? t.studio.tabPermissionPromptMobile : t.studio.tabPermissionPrompt}
                 >
                   <MonitorUp size={16} />
-                  {t.studio.startTab}
+                  {isMobile ? t.studio.startTabMobile : t.studio.startTab}
                 </button>
               </>
             ) : (
@@ -559,7 +617,7 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
                 className="btn-recording"
               >
                 <Square size={16} />
-                {t.studio.stopRecording} ({captureMode === 'mic' ? (language === 'zh' ? '麦克风' : 'Mic') : (language === 'zh' ? '系统音频' : 'Screen Audio')})
+                {t.studio.stopRecording} ({captureMode === 'mic' ? (language === 'zh' ? '麦克风' : 'Mic') : isMobileMeetingMode ? (language === 'zh' ? '免提/会议音频' : 'Meeting Audio') : (language === 'zh' ? '系统音频' : 'Screen Audio')})
               </button>
             )}
 
@@ -703,15 +761,17 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
             marginTop: '16px',
             padding: '10px 16px',
             borderRadius: '12px',
-            background: 'rgba(6, 182, 212, 0.08)',
-            border: '1px solid rgba(6, 182, 212, 0.25)',
+            background: isMobileMeetingMode ? 'rgba(56, 189, 248, 0.08)' : 'rgba(6, 182, 212, 0.08)',
+            border: `1px solid ${isMobileMeetingMode ? 'rgba(56, 189, 248, 0.25)' : 'rgba(6, 182, 212, 0.25)'}`,
             fontSize: '12.5px',
-            color: 'var(--accent-cyan)',
+            color: isMobileMeetingMode ? '#38bdf8' : 'var(--accent-cyan)',
             display: 'flex',
             alignItems: 'center',
             gap: '8px'
           }}>
-            <span>{t.studio.tabRecordingActiveBanner}</span>
+            <span>
+              {isMobileMeetingMode ? t.studio.mobileMeetingModeActive : t.studio.tabRecordingActiveBanner}
+            </span>
           </div>
         )}
 
