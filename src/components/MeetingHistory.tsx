@@ -14,11 +14,29 @@ import {
 import { fetchMeetings, deleteMeeting, updateMeetingTitle, type MeetingRecord } from '../services/supabase';
 import { useLanguage } from '../context/LanguageContext';
 
+export const GeminiStarIcon: React.FC<{ size?: number; className?: string; style?: React.CSSProperties }> = ({
+  size = 15,
+  className = '',
+  style = {}
+}) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    className={className}
+    style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0, ...style }}
+    fill="currentColor"
+  >
+    <path d="M12 0C12 6.627 6.627 12 0 12C6.627 12 12 17.373 12 24C12 17.373 17.373 12 24 12C17.373 12 12 6.627 12 0Z" />
+  </svg>
+);
+
 interface MeetingHistoryProps {
   onSelectMeeting: (meeting: MeetingRecord) => void;
+  onOpenChat?: (meeting: MeetingRecord) => void;
 }
 
-export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting }) => {
+export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting, onOpenChat }) => {
   const { t, language } = useLanguage();
   const [meetings, setMeetings] = useState<MeetingRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -355,6 +373,25 @@ export const MeetingHistory: React.FC<MeetingHistoryProps> = ({ onSelectMeeting 
                       );
                     })()}
                   </div>
+
+                  {/* Gemini AI Chat Micro-Action */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.dispatchEvent(
+                        new CustomEvent('meetwithai:open-chat', {
+                          detail: { meetingId: item.id, meetingTitle: item.title }
+                        })
+                      );
+                      onOpenChat?.(item);
+                    }}
+                    className="vault-action-btn-ai"
+                    title={language === 'zh' ? `与 AI 对话关于“${item.title}”` : `Chat with AI about "${item.title}"`}
+                    aria-label={t.vault.chatWithAi || 'Chat with AI'}
+                  >
+                    <GeminiStarIcon size={16} />
+                  </button>
 
                   {/* Open button */}
                   <button

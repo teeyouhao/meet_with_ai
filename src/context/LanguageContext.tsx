@@ -120,7 +120,8 @@ export const translations = {
       durationMin: 'min',
       durationSec: 'sec',
       viewSummary: 'View Summary',
-      deleteMeeting: 'Delete Record'
+      deleteMeeting: 'Delete Record',
+      chatWithAi: 'Chat with AI'
     },
 
     // Insights & Analytics
@@ -354,7 +355,8 @@ export const translations = {
       durationMin: '分',
       durationSec: '秒',
       viewSummary: '查看纪要',
-      deleteMeeting: '删除记录'
+      deleteMeeting: '删除记录',
+      chatWithAi: '与 AI 对话'
     },
 
     // Insights & Analytics

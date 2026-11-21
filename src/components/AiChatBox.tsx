@@ -1,7 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, Send, Sparkles, User, MessageSquare, Quote, X, Trash2 } from 'lucide-react';
+import { Send, Sparkles, User, Quote, X, Trash2 } from 'lucide-react';
 import { chatWithAi, type ChatMessage } from '../services/memory';
 import { useLanguage } from '../context/LanguageContext';
+
+export const GeminiStarIcon: React.FC<{ size?: number; className?: string; style?: React.CSSProperties }> = ({
+  size = 16,
+  className = '',
+  style = {}
+}) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    className={className}
+    style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0, ...style }}
+    fill="currentColor"
+  >
+    <path d="M12 0C12 6.627 6.627 12 0 12C6.627 12 12 17.373 12 24C12 17.373 17.373 12 24 12C17.373 12 12 6.627 12 0Z" />
+  </svg>
+);
 
 interface AiChatBoxProps {
   meetingId?: string;
@@ -9,17 +26,44 @@ interface AiChatBoxProps {
 }
 
 export const AiChatBox: React.FC<AiChatBoxProps> = ({
-  meetingId,
-  meetingTitle
+  meetingId: initialMeetingId,
+  meetingTitle: initialMeetingTitle
 }) => {
   const { language } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
+  const [activeMeetingId, setActiveMeetingId] = useState<string | undefined>(initialMeetingId);
+  const [activeMeetingTitle, setActiveMeetingTitle] = useState<string | undefined>(initialMeetingTitle);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [citations, setCitations] = useState<Array<{ title: string; text: string }>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sync props to internal state when valid
+  useEffect(() => {
+    if (initialMeetingId) {
+      setActiveMeetingId(initialMeetingId);
+      setActiveMeetingTitle(initialMeetingTitle);
+    }
+  }, [initialMeetingId, initialMeetingTitle]);
+
+  // Support opening via custom event from any item card in MeetingHistory
+  useEffect(() => {
+    const handleOpenChat = (e: Event) => {
+      const detail = (e as CustomEvent<{ meetingId?: string; meetingTitle?: string }>).detail;
+      if (detail) {
+        if (detail.meetingId) setActiveMeetingId(detail.meetingId);
+        if (detail.meetingTitle) setActiveMeetingTitle(detail.meetingTitle);
+      }
+      setIsOpen(true);
+    };
+
+    window.addEventListener('meetwithai:open-chat', handleOpenChat);
+    return () => {
+      window.removeEventListener('meetwithai:open-chat', handleOpenChat);
+    };
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -34,12 +78,12 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
 
   const quickPrompts = language === 'zh'
     ? [
-        meetingId ? '本次会议达成了哪些关键决议？' : '最近的会议讨论了哪些重点项目？',
+        activeMeetingId ? '本次会议达成了哪些关键决议？' : '最近的会议讨论了哪些重点项目？',
         '有哪些待办行动项需要跟进？',
         '会议中有提到任何关键时间节点或风险吗？'
       ]
     : [
-        meetingId ? 'What key decisions were reached?' : 'What are the main project updates across meetings?',
+        activeMeetingId ? 'What key decisions were reached?' : 'What are the main project updates across meetings?',
         'What action items require follow-up?',
         'Were any deadlines or risks highlighted?'
       ];
@@ -54,7 +98,7 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
     setIsLoading(true);
 
     try {
-      const res = await chatWithAi(text, meetingId, messages);
+      const res = await chatWithAi(text, activeMeetingId, messages);
       const assistantMsg: ChatMessage = { role: 'assistant', content: res.reply };
       setMessages(prev => [...prev, assistantMsg]);
       if (res.citations && res.citations.length > 0) {
@@ -82,7 +126,7 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
 
   return (
     <>
-      {/* ── Small Floating Chat Icon (FAB) ── */}
+      {/* ── Small Floating Chat Icon (FAB) with Gemini Star ── */}
       <button
         type="button"
         className="floating-chat-fab"
@@ -94,12 +138,12 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
           <X size={22} />
         ) : (
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Bot size={22} />
+            <GeminiStarIcon size={22} style={{ color: '#ffffff', filter: 'drop-shadow(0 0 6px rgba(255, 255, 255, 0.6))' }} />
             <Sparkles
-              size={12}
+              size={11}
               style={{
                 position: 'absolute',
-                top: -6,
+                top: -5,
                 right: -6,
                 color: '#facc15',
                 filter: 'drop-shadow(0 0 4px rgba(250, 204, 21, 0.8))'
@@ -109,7 +153,7 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
         )}
       </button>
 
-      {/* ── Small Floating Chat Window (ChatGPT-style) ── */}
+      {/* ── Small Floating Chat Window (Gemini Copilot style) ── */}
       {isOpen && (
         <div className="floating-chat-popup">
           {/* Header */}
@@ -120,7 +164,7 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
               justifyContent: 'space-between',
               padding: '12px 16px',
               borderBottom: '1px solid var(--glass-border)',
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.12) 100%)',
+              background: 'linear-gradient(135deg, rgba(66, 133, 244, 0.15) 0%, rgba(155, 114, 203, 0.14) 50%, rgba(217, 101, 112, 0.12) 100%)',
               userSelect: 'none'
             }}
           >
@@ -130,23 +174,23 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                   width: '32px',
                   height: '32px',
                   borderRadius: '10px',
-                  background: 'linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-purple) 100%)',
+                  background: 'linear-gradient(135deg, #4285f4 0%, #9b72cb 50%, #d96570 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: '#fff',
                   flexShrink: 0,
-                  boxShadow: '0 4px 12px var(--accent-primary-glow)'
+                  boxShadow: '0 4px 14px rgba(66, 133, 244, 0.4)'
                 }}
               >
-                <Bot size={18} />
+                <GeminiStarIcon size={18} style={{ animation: 'gemini-sparkle-spin 8s linear infinite' }} />
               </div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <h4 style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                    {language === 'zh' ? 'AI 助理 (ChatGPT)' : 'AI Executive Assistant'}
+                    {language === 'zh' ? 'AI 助理 (Gemini)' : 'AI Executive Assistant'}
                   </h4>
-                  <Sparkles size={12} color="var(--accent-purple)" />
+                  <Sparkles size={12} color="#9b72cb" />
                 </div>
                 <div
                   style={{
@@ -157,10 +201,10 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                     textOverflow: 'ellipsis',
                     maxWidth: '220px'
                   }}
-                  title={meetingTitle || (language === 'zh' ? '全域向量记忆' : 'Semantic Memory')}
+                  title={activeMeetingTitle || (language === 'zh' ? '全域向量记忆' : 'Semantic Memory')}
                 >
-                  {meetingTitle
-                    ? (language === 'zh' ? `当前: ${meetingTitle}` : `Context: ${meetingTitle}`)
+                  {activeMeetingTitle
+                    ? (language === 'zh' ? `当前会议: ${activeMeetingTitle}` : `Context: ${activeMeetingTitle}`)
                     : (language === 'zh' ? '基于全部会议向量记忆' : 'Cross-meeting vector memory')}
                 </div>
               </div>
@@ -224,22 +268,23 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                     width: '42px',
                     height: '42px',
                     borderRadius: '50%',
-                    background: 'rgba(99, 102, 241, 0.1)',
+                    background: 'linear-gradient(135deg, rgba(66, 133, 244, 0.15) 0%, rgba(155, 114, 203, 0.2) 100%)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     margin: '0 auto 10px',
-                    color: 'var(--accent-primary)'
+                    color: '#818cf8',
+                    border: '1px solid rgba(155, 114, 203, 0.3)'
                   }}
                 >
-                  <MessageSquare size={20} />
+                  <GeminiStarIcon size={22} style={{ color: '#818cf8' }} />
                 </div>
                 <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 4px' }}>
                   {language === 'zh' ? '有什么可以帮您的？' : 'How can I assist you?'}
                 </p>
                 <p style={{ fontSize: '11.5px', lineHeight: 1.45, margin: 0 }}>
-                  {meetingTitle
-                    ? (language === 'zh' ? `您可以随时询问针对本场会议「${meetingTitle}」的具体细节、行动项或决议。` : `Ask about any decisions, deadlines, or discussions from "${meetingTitle}".`)
+                  {activeMeetingTitle
+                    ? (language === 'zh' ? `您可以随时询问针对本场会议「${activeMeetingTitle}」的具体细节、行动项或决议。` : `Ask about any decisions, deadlines, or discussions from "${activeMeetingTitle}".`)
                     : (language === 'zh' ? '我可以跨时段检索您所有会议的向量语义记忆，回答历史决策与待办。' : 'I can search cross-meeting semantic memory to surface decisions and tasks.')}
                 </p>
 
@@ -289,15 +334,16 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                         width: '24px',
                         height: '24px',
                         borderRadius: '50%',
-                        background: 'rgba(99, 102, 241, 0.2)',
+                        background: 'linear-gradient(135deg, rgba(66, 133, 244, 0.2) 0%, rgba(155, 114, 203, 0.25) 100%)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         flexShrink: 0,
-                        marginTop: '2px'
+                        marginTop: '2px',
+                        border: '1px solid rgba(155, 114, 203, 0.3)'
                       }}
                     >
-                      <Bot size={13} color="var(--accent-primary)" />
+                      <GeminiStarIcon size={13} style={{ color: '#818cf8' }} />
                     </div>
                   )}
 
@@ -342,7 +388,7 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
               );
             })}
 
-            {/* ── ChatGPT-style Shimmering Loading Animation ── */}
+            {/* ── Google Gemini-style Shimmering Loading Animation ── */}
             {isLoading && (
               <div
                 style={{
@@ -350,7 +396,7 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                   alignItems: 'flex-start',
                   gap: '8px',
                   alignSelf: 'flex-start',
-                  width: '85%'
+                  width: '90%'
                 }}
               >
                 <div
@@ -358,7 +404,8 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                     width: '24px',
                     height: '24px',
                     borderRadius: '50%',
-                    background: 'rgba(99, 102, 241, 0.2)',
+                    background: 'linear-gradient(135deg, rgba(66, 133, 244, 0.25) 0%, rgba(155, 114, 203, 0.3) 100%)',
+                    border: '1px solid rgba(155, 114, 203, 0.35)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -366,44 +413,36 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                     marginTop: '2px'
                   }}
                 >
-                  <Bot size={13} color="var(--accent-primary)" />
+                  <GeminiStarIcon
+                    size={13}
+                    style={{
+                      animation: 'gemini-sparkle-spin 2s linear infinite',
+                      color: '#9b72cb'
+                    }}
+                  />
                 </div>
 
-                <div
-                  style={{
-                    flex: 1,
-                    padding: '12px 14px',
-                    borderRadius: '14px 14px 14px 3px',
-                    background: 'var(--glass-surface-subtle)',
-                    border: '1px solid var(--glass-border)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '9px'
-                  }}
-                >
-                  {/* Shimmer header text */}
+                <div className="gemini-shimmer-container" style={{ flex: 1 }}>
+                  {/* Shimmer header text with holographic gradient */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Sparkles size={12} color="var(--accent-purple)" />
-                    <span className="chatgpt-shimmer-text" style={{ fontSize: '11.5px' }}>
-                      {language === 'zh'
-                        ? 'AI 正在检索向量记忆并深度推理…'
-                        : 'Searching vector memory & reasoning…'}
-                    </span>
-                    <span
+                    <GeminiStarIcon
+                      size={12}
                       style={{
-                        fontSize: '10px',
-                        color: 'var(--accent-primary)',
-                        animation: 'chatgpt-pulse-dot 1s infinite'
+                        animation: 'gemini-sparkle-spin 2.2s linear infinite',
+                        color: '#4285f4'
                       }}
-                    >
-                      ●
+                    />
+                    <span className="gemini-gradient-text" style={{ fontSize: '11.5px' }}>
+                      {language === 'zh'
+                        ? 'Gemini 正在分析会议记忆并深度思考…'
+                        : 'Gemini is analyzing meeting memory & generating insights…'}
                     </span>
                   </div>
 
-                  {/* 3 ChatGPT Shimmer Skeleton Waves */}
-                  <div className="chatgpt-shimmer-line" style={{ width: '85%' }} />
-                  <div className="chatgpt-shimmer-line" style={{ width: '100%' }} />
-                  <div className="chatgpt-shimmer-line" style={{ width: '58%' }} />
+                  {/* 3 Gemini Holographic Shimmer Skeleton Waves */}
+                  <div className="gemini-shimmer-bar" style={{ width: '88%' }} />
+                  <div className="gemini-shimmer-bar" style={{ width: '100%', animationDelay: '0.2s' }} />
+                  <div className="gemini-shimmer-bar" style={{ width: '62%', animationDelay: '0.4s' }} />
                 </div>
               </div>
             )}
@@ -472,8 +511,8 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={
-                  meetingTitle
-                    ? (language === 'zh' ? `问问关于「${meetingTitle}」…` : `Ask about "${meetingTitle}"…`)
+                  activeMeetingTitle
+                    ? (language === 'zh' ? `问问关于「${activeMeetingTitle}」…` : `Ask about "${activeMeetingTitle}"…`)
                     : (language === 'zh' ? '输入问题或检索记忆…' : 'Ask about past meetings…')
                 }
                 disabled={isLoading}

@@ -195,7 +195,7 @@ function AppShell() {
         }}
       />
 
-      {/* Floating AI Executive Assistant (ChatGPT-style) */}
+      {/* Floating AI Executive Assistant (Gemini-style) */}
       <AiChatBox
         meetingId={vaultMeeting?.id || currentMeetingId || undefined}
         meetingTitle={vaultMeeting?.title || currentTitle || undefined}

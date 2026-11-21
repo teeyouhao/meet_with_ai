@@ -994,3 +994,129 @@ button:disabled {
     height: 480px;
   }
 }
+
+/* ==========================================================================
+   Google Gemini Signature Holographic Shimmer & Star Aesthetics
+   ========================================================================== */
+
+@keyframes gemini-shimmer-sweep {
+  0% {
+    background-position: -250% 0;
+  }
+  100% {
+    background-position: 250% 0;
+  }
+}
+
+@keyframes gemini-sparkle-spin {
+  0% {
+    transform: rotate(0deg) scale(0.92);
+    filter: drop-shadow(0 0 5px rgba(66, 133, 244, 0.7));
+  }
+  50% {
+    transform: rotate(180deg) scale(1.15);
+    filter: drop-shadow(0 0 12px rgba(217, 101, 112, 0.85)) drop-shadow(0 0 6px rgba(155, 114, 203, 0.7));
+  }
+  100% {
+    transform: rotate(360deg) scale(0.92);
+    filter: drop-shadow(0 0 5px rgba(66, 133, 244, 0.7));
+  }
+}
+
+@keyframes gemini-pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 14px -2px rgba(66, 133, 244, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 22px 2px rgba(155, 114, 203, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
+}
+
+.gemini-gradient-text {
+  background: linear-gradient(
+    90deg,
+    #4285f4 0%,
+    #9b72cb 25%,
+    #d96570 50%,
+    #06b6d4 75%,
+    #4285f4 100%
+  );
+  background-size: 200% 100%;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: gemini-shimmer-sweep 2.4s linear infinite;
+  font-weight: 600;
+  display: inline-block;
+}
+
+.gemini-shimmer-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--glass-surface-subtle);
+  border: 1px solid rgba(155, 114, 203, 0.28);
+  animation: gemini-pulse-glow 2.8s infinite ease-in-out;
+  position: relative;
+  overflow: hidden;
+}
+
+.gemini-shimmer-bar {
+  height: 11px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(66, 133, 244, 0.12) 0%,
+    rgba(155, 114, 203, 0.38) 25%,
+    rgba(217, 101, 112, 0.42) 50%,
+    rgba(6, 182, 212, 0.38) 75%,
+    rgba(66, 133, 244, 0.12) 100%
+  );
+  background-size: 250% 100%;
+  animation: gemini-shimmer-sweep 1.8s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme="light"] .gemini-shimmer-bar {
+  background: linear-gradient(
+    90deg,
+    rgba(66, 133, 244, 0.14) 0%,
+    rgba(155, 114, 203, 0.32) 25%,
+    rgba(217, 101, 112, 0.32) 50%,
+    rgba(6, 182, 212, 0.28) 75%,
+    rgba(66, 133, 244, 0.14) 100%
+  );
+  background-size: 250% 100%;
+}
+
+/* History Vault Card AI Chat Trigger Micro-Action Button */
+.vault-action-btn-ai {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.14) 0%, rgba(155, 114, 203, 0.18) 100%);
+  border: 1px solid rgba(155, 114, 203, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #818cf8;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.vault-action-btn-ai:hover {
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.28) 0%, rgba(217, 101, 112, 0.28) 100%);
+  border-color: rgba(217, 101, 112, 0.55);
+  transform: translateY(-1.5px) scale(1.06);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+  color: #c084fc;
+}
+
+.vault-action-btn-ai:active {
+  transform: scale(0.94);
+}
+
