@@ -201,8 +201,6 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
     recordingDuration,
     audioUrl,
     audioLevel,
-    activeSpeaker,
-    isStereoSeparated,
     isMobileMeetingMode,
     captureMode,
     audioBlob,
@@ -509,70 +507,6 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
               <div style={{ width: '1px', height: '24px', background: 'var(--glass-border)' }} />
 
               <AudioVisualizer isRecording={isRecording} audioLevel={audioLevel} />
-
-              {isStereoSeparated && isRecording && (
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '4px 10px',
-                  borderRadius: '12px',
-                  background: 'rgba(99, 102, 241, 0.08)',
-                  border: '1px solid rgba(99, 102, 241, 0.2)',
-                  fontSize: '11px',
-                  fontWeight: 600
-                }}>
-                  <span style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '3px',
-                    color: activeSpeaker === 'host' ? '#818cf8' : 'var(--text-muted)',
-                    transition: 'color 0.2s ease'
-                  }}>
-                    🎙️ {language === 'zh' ? '您 (左)' : 'You (Left)'}
-                  </span>
-                  <span style={{ color: 'var(--border-subtle)' }}>•</span>
-                  <span style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '3px',
-                    color: activeSpeaker === 'remote' ? '#38bdf8' : 'var(--text-muted)',
-                    transition: 'color 0.2s ease'
-                  }}>
-                    🔊 {language === 'zh' ? '参会者 (右)' : 'Remote (Right)'}
-                  </span>
-                  {activeSpeaker !== 'idle' && (
-                    <span style={{
-                      padding: '1px 6px',
-                      borderRadius: '6px',
-                      fontSize: '9.5px',
-                      fontWeight: 700,
-                      background: activeSpeaker === 'host' ? 'rgba(99, 102, 241, 0.25)' : 'rgba(56, 189, 248, 0.25)',
-                      color: activeSpeaker === 'host' ? '#c7d2fe' : '#bae6fd'
-                    }}>
-                      {activeSpeaker === 'host' ? (language === 'zh' ? '本地发言' : 'Speaking') : (language === 'zh' ? '对方发言' : 'Speaking')}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {isMobileMeetingMode && isRecording && (
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '4px 10px',
-                  borderRadius: '12px',
-                  background: 'rgba(56, 189, 248, 0.1)',
-                  border: '1px solid rgba(56, 189, 248, 0.28)',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  color: '#38bdf8'
-                }}>
-                  <span>📱</span>
-                  <span>{language === 'zh' ? '免提拾音模式 (增强)' : 'Mobile Meeting Mode (High Gain)'}</span>
-                </div>
-              )}
             </div>
           )}
         </div>
