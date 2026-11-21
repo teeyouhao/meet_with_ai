@@ -838,8 +838,8 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
             isSpeechSupported
               ? t.studio.transcriptPlaceholder
               : (language === 'zh'
-                  ? '当前浏览器不支持本地语音识别。您可以直接在此键入或粘贴会议对话内容以生成 AI 纪要。'
-                  : 'Speech recognition not supported in this browser. You can type or paste meeting transcripts here for AI summarization.')
+                ? '当前浏览器不支持本地语音识别。您可以直接在此键入或粘贴会议对话内容以生成 AI 纪要。'
+                : 'Speech recognition not supported in this browser. You can type or paste meeting transcripts here for AI summarization.')
           }
           style={{
             width: '100%',
