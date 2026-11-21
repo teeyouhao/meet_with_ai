@@ -149,66 +149,83 @@ router.post('/chat', optionalAuth, async (req: AuthenticatedRequest, res: Respon
       }
     }
 
-    const groqKey = process.env.GROQ_API_KEY || '';
-    if (!groqKey) {
-      return res.json({
-        reply: "Groq AI is ready, but GROQ_API_KEY is not configured on the server.",
-        citations
-      });
-    }
+    const groqKey = req.body.groqApiKey || req.body.apiKey || process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || '';
+    const openRouterKey = process.env.OPENROUTER_API_KEY || '';
 
     const conversationMessages = [
       {
         role: 'system',
-        content: `You are MeetWithAI Executive Assistant. You answer user questions accurately and insightfully based on the provided meeting context and semantic memories. If the user asks in Chinese, reply in fluent Simplified Chinese. If in English, reply in English. Keep answers clear, professional, and well-structured.\n\n${context}`
+        content: `You are MeetWithAI Executive Assistant. You answer user questions accurately, concisely, and insightfully based on the provided meeting context and semantic memories. If the user asks in Chinese, reply in fluent Simplified Chinese. If in English, reply in English. Keep answers clear, professional, bulleted where appropriate, and cite the meeting points.\n\n${context}`
       },
       ...((Array.isArray(history) ? history : []).slice(-6)),
       { role: 'user', content: message }
     ];
 
     let reply = '';
-    try {
-      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${groqKey}`
-        },
-        body: JSON.stringify({
-          model: 'openai/gpt-oss-120b',
-          messages: conversationMessages,
-          temperature: 0.3,
-          max_tokens: 1024
-        })
-      });
 
-      if (groqRes.ok) {
-        const data = await groqRes.json();
-        reply = data.choices?.[0]?.message?.content || '';
+    // 1. Primary: Groq AI
+    if (groqKey) {
+      const GROQ_MODELS = ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b'];
+      for (const model of GROQ_MODELS) {
+        try {
+          const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${groqKey}`
+            },
+            body: JSON.stringify({
+              model,
+              messages: conversationMessages,
+              temperature: 0.3,
+              max_tokens: 1024
+            })
+          });
+
+          if (groqRes.ok) {
+            const data = await groqRes.json();
+            reply = data.choices?.[0]?.message?.content || '';
+            if (reply) break;
+          }
+        } catch (groqErr) {
+          console.warn(`[Memory Chat] Groq model ${model} failed:`, groqErr);
+        }
       }
-    } catch {
-      // try fallback
     }
 
-    if (!reply) {
-      const fallbackRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${groqKey}`
-        },
-        body: JSON.stringify({
-          model: 'qwen/qwen3.8-27b',
-          messages: conversationMessages,
-          temperature: 0.3,
-          max_tokens: 1024
-        })
-      });
+    // 2. Secondary: OpenRouter Fallback
+    if (!reply && openRouterKey) {
+      try {
+        const orRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${openRouterKey}`,
+            'HTTP-Referer': 'https://meetwithai.vercel.app',
+            'X-Title': 'MeetWithAI'
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-2.5-flash',
+            messages: conversationMessages,
+            temperature: 0.3,
+            max_tokens: 1024
+          })
+        });
 
-      if (fallbackRes.ok) {
-        const data = await fallbackRes.json();
-        reply = data.choices?.[0]?.message?.content || '';
+        if (orRes.ok) {
+          const data = await orRes.json();
+          reply = data.choices?.[0]?.message?.content || '';
+        }
+      } catch (orErr) {
+        console.warn('[Memory Chat] OpenRouter fallback failed:', orErr);
       }
+    }
+
+    if (!reply && !groqKey && !openRouterKey) {
+      return res.json({
+        reply: "Groq AI is ready, but GROQ_API_KEY is not configured on the server. Please add GROQ_API_KEY to your Vercel Project Environment Variables, or enter your Groq API key in Settings.",
+        citations
+      });
     }
 
     return res.json({

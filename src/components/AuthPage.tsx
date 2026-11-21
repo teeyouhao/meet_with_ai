@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Mail, Lock, User, Eye, EyeOff, Sparkles, ArrowRight, RefreshCw, Moon, Sun } from 'lucide-react';
-import { signInWithEmail, signUpWithEmail, sendPasswordReset } from '../services/auth';
+import { signInWithEmail, signUpWithEmail, sendPasswordReset, loginAsGuest } from '../services/auth';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
@@ -248,6 +248,46 @@ export function AuthPage() {
               : <><Mail size={16} /> Send Reset Link</>}
           </button>
         </form>
+
+        {/* Guest Mode Direct Access */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '20px 0 16px' }}>
+          <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }} />
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+            or
+          </span>
+          <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }} />
+        </div>
+
+        <button
+          type="button"
+          onClick={async () => {
+            loginAsGuest();
+            await refreshUser();
+          }}
+          className="btn-secondary"
+          style={{
+            width: '100%',
+            padding: '11px 14px',
+            fontSize: '14px',
+            borderRadius: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            fontWeight: 600,
+            background: 'rgba(99, 102, 241, 0.08)',
+            border: '1px solid rgba(99, 102, 241, 0.28)',
+            color: 'var(--text-primary)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <Sparkles size={15} color="#818cf8" />
+          <span>✨ Continue as Guest (No Sign-in)</span>
+        </button>
+        <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '6px' }}>
+          Private browser IndexedDB storage • 0 cloud setup required
+        </p>
 
         {/* Mode switcher */}
         <div style={{ marginTop: '24px', textAlign: 'center', fontSize: '14px', color: 'var(--text-secondary)' }}>

@@ -10,7 +10,7 @@ import {
   FileText
 } from 'lucide-react';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
-import { useAudioRecorder } from '../hooks/useAudioRecorder';
+import { useAudioRecorder, type DominantSpeaker } from '../hooks/useAudioRecorder';
 import { AudioVisualizer } from './AudioVisualizer';
 import { PipelineStatus } from './PipelineStatus';
 import { summarizeMeeting, type SummarizeResult } from '../services/summarizer';
@@ -124,7 +124,11 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
     : transcript;
 
   // Queue to ensure 10-second audio chunks are processed strictly in chronological FIFO order
-  const chunkQueueRef = React.useRef<Blob[]>([]);
+  interface ChunkQueueItem {
+    blob: Blob;
+    speaker?: DominantSpeaker;
+  }
+  const chunkQueueRef = React.useRef<ChunkQueueItem[]>([]);
   const isProcessingQueueRef = React.useRef(false);
   const lastChunkTextRef = React.useRef<string>('');
 
@@ -133,13 +137,13 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
     isProcessingQueueRef.current = true;
 
     while (chunkQueueRef.current.length > 0) {
-      const chunkBlob = chunkQueueRef.current.shift()!;
+      const queueItem = chunkQueueRef.current.shift()!;
       try {
         setIsTranscribingChunk(true);
         // Important: Never pass trailing transcript as prompt to Whisper on 10s chunk slices.
         // Whisper decoders autoregressively echo the prompt when audio chunks contain silence,
         // causing infinite repetition loops when there is no audio input.
-        const response = await transcribeAudioWithWhisper(chunkBlob);
+        const response = await transcribeAudioWithWhisper(queueItem.blob);
 
         if (response.text) {
           const cleaned = cleanWhisperChunk(response.text);
@@ -156,8 +160,17 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
               console.log('[10s Whisper Chunk Sync]: Ignored silence duplicate/echo:', cleaned);
             } else {
               lastChunkTextRef.current = cleaned;
+
+              // Apply stereo channel diarization label
+              let taggedText = cleaned;
+              if (queueItem.speaker === 'host') {
+                taggedText = `[Host / You]: ${cleaned}`;
+              } else if (queueItem.speaker === 'remote') {
+                taggedText = `[Attendee / Remote]: ${cleaned}`;
+              }
+
               const trimmed = transcriptRef.current.trim();
-              const updated = trimmed ? `${trimmed} ${cleaned}` : cleaned;
+              const updated = trimmed ? `${trimmed}\n${taggedText}` : taggedText;
               transcriptRef.current = updated;
               setTranscript(updated);
             }
@@ -173,10 +186,10 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
     isProcessingQueueRef.current = false;
   }, [setTranscript]);
 
-  const handleChunkReady = React.useCallback((sliceBlob: Blob) => {
+  const handleChunkReady = React.useCallback((sliceBlob: Blob, speaker?: DominantSpeaker) => {
     // If Groq key is present, queue this 10-second chunk for Whisper transcription
     if (getGroqApiKey()) {
-      chunkQueueRef.current.push(sliceBlob);
+      chunkQueueRef.current.push({ blob: sliceBlob, speaker });
       processChunkQueue();
     }
   }, [processChunkQueue]);
@@ -186,6 +199,8 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
     recordingDuration,
     audioUrl,
     audioLevel,
+    activeSpeaker,
+    isStereoSeparated,
     captureMode,
     audioBlob,
     startRecording,
@@ -454,6 +469,52 @@ export const AudioCapturePanel: React.FC<AudioCapturePanelProps> = ({
               <div style={{ width: '1px', height: '24px', background: 'var(--glass-border)' }} />
 
               <AudioVisualizer isRecording={isRecording} audioLevel={audioLevel} />
+
+              {isStereoSeparated && isRecording && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  background: 'rgba(99, 102, 241, 0.08)',
+                  border: '1px solid rgba(99, 102, 241, 0.2)',
+                  fontSize: '11px',
+                  fontWeight: 600
+                }}>
+                  <span style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                    color: activeSpeaker === 'host' ? '#818cf8' : 'var(--text-muted)',
+                    transition: 'color 0.2s ease'
+                  }}>
+                    🎙️ {language === 'zh' ? '您 (左)' : 'You (Left)'}
+                  </span>
+                  <span style={{ color: 'var(--border-subtle)' }}>•</span>
+                  <span style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                    color: activeSpeaker === 'remote' ? '#38bdf8' : 'var(--text-muted)',
+                    transition: 'color 0.2s ease'
+                  }}>
+                    🔊 {language === 'zh' ? '参会者 (右)' : 'Remote (Right)'}
+                  </span>
+                  {activeSpeaker !== 'idle' && (
+                    <span style={{
+                      padding: '1px 6px',
+                      borderRadius: '6px',
+                      fontSize: '9.5px',
+                      fontWeight: 700,
+                      background: activeSpeaker === 'host' ? 'rgba(99, 102, 241, 0.25)' : 'rgba(56, 189, 248, 0.25)',
+                      color: activeSpeaker === 'host' ? '#c7d2fe' : '#bae6fd'
+                    }}>
+                      {activeSpeaker === 'host' ? (language === 'zh' ? '本地发言' : 'Speaking') : (language === 'zh' ? '对方发言' : 'Speaking')}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

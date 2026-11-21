@@ -114,7 +114,14 @@ STRICT ACCURACY & LOGIC RULES:
 1. Executive Overview: Synthesize a cohesive 2-4 sentence summary of the session's core purpose, context, and key takeaway.
 2. Key Discussion Points: Provide clear, coherent bullet points of the substantive topics discussed. Do NOT output raw transcript fragments or sentence splices.
 3. Decisions Concluded: Output ONLY decisions that were explicitly agreed upon, resolved, or approved. IF NO EXPLICIT DECISIONS WERE CONCLUDED, RETURN AN EMPTY ARRAY []. NEVER fabricate generic decisions.
-4. Assigned Action Items & Deliverables: Extract real tasks and identify the actual person or organization responsible. The assignee must be an actual entity, NOT filler words like "The" or "Meanwhile". If no assignee is mentioned, use ${isZh ? '"未指定"' : '"Unassigned"'}. If no action items exist in the transcript, return an empty array [].
+4. Assigned Action Items & Deliverables: Extract real tasks and accurately identify the responsible person, speaker, team, or group:
+- STEREO SPEAKER TAG ATTRIBUTION:
+  * If the transcript includes "[Host / You]" or "[You]" (the local user): when they commit to a deliverable or task (e.g. "I will submit the assignment"), assign it to "You" (or user name).
+  * If the transcript includes "[Attendee / Remote]" or specific speaker names (e.g. "[Dr. Sue]"): attribute tasks committed by or assigned by the remote speaker accordingly.
+- STRICT LOGIC: DISTINGUISH ASSIGNER VS. ASSIGNEE:
+  * When an instructor, manager, or client assigns a deliverable to a cohort or group (e.g. "All students must create and submit an infographic poster by 21 October"), the assignee is the recipient team/group (e.g. "All students"), NOT the instructor.
+  * When a specific person commits to their own task (e.g. "I will upload the detailed assignment instructions and sample infographic to Spectrum"), the assignee is that specific speaker (e.g. "Dr. Sue").
+  * The assignee must be an actual entity, group, or person (e.g. "All students", "Dr. Sue", "Design Team", "Alex", "You"), NOT filler words like "The" or "Meanwhile". If no assignee is mentioned, use ${isZh ? '"未指定"' : '"Unassigned"'}. If no action items exist in the transcript, return an empty array [].
 
 Respond ONLY with a valid JSON object matching this schema:
 {

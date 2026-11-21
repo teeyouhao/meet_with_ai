@@ -52,6 +52,34 @@ export function getStoredUser(): AuthUser | null {
   }
 }
 
+export function isGuestUser(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const isGuest = localStorage.getItem('meetwithai_is_guest') === 'true';
+    const user = getStoredUser();
+    return isGuest || user?.id === 'guest';
+  } catch {
+    return false;
+  }
+}
+
+export function loginAsGuest(): AuthUser {
+  const guestUser: AuthUser = {
+    id: 'guest',
+    email: 'guest@meetwithai.local',
+    user_metadata: {
+      full_name: 'Guest User'
+    }
+  };
+  try {
+    localStorage.setItem('meetwithai_is_guest', 'true');
+    setStoredAuth('guest_local_token', guestUser);
+  } catch {
+    // Non-blocking
+  }
+  return guestUser;
+}
+
 /** Native Sign up with email, password, and full name */
 export async function signUpWithEmail(
   email: string,
@@ -148,6 +176,7 @@ export async function signInWithEmail(
 /** Native Sign out */
 export async function signOut(): Promise<void> {
   try {
+    localStorage.removeItem('meetwithai_is_guest');
     await fetch(`${API_BASE}/api/auth/logout`, {
       method: 'POST',
       credentials: 'include'
@@ -167,6 +196,12 @@ export async function sendPasswordReset(_email: string): Promise<{ error: string
 
 /** Get current session user from backend or localStorage cache */
 export async function getSessionUser(): Promise<AuthUser | null> {
+  if (isGuestUser()) {
+    const cached = getStoredUser();
+    if (cached) return cached;
+    return loginAsGuest();
+  }
+
   const token = getAuthToken();
   const cachedUser = getStoredUser();
 

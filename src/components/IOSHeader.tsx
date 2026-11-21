@@ -32,13 +32,16 @@ export const IOSHeader: React.FC<IOSHeaderProps> = ({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const displayName = user?.user_metadata?.full_name
-    || user?.user_metadata?.name
-    || user?.email?.split('@')[0]
-    || t.header.guest;
+  const isGuest = user?.id === 'guest';
+  const displayName = isGuest
+    ? (language === 'zh' ? '访客模式' : 'Guest Mode')
+    : (user?.user_metadata?.full_name
+      || user?.user_metadata?.name
+      || user?.email?.split('@')[0]
+      || t.header.guest);
 
   const avatarUrl = user?.user_metadata?.avatar_url;
-  const initials = displayName.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
+  const initials = isGuest ? 'GM' : displayName.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
 
   const todayStr = new Intl.DateTimeFormat(language === 'zh' ? 'zh-CN' : 'en-US', {
     weekday: 'short',
@@ -270,9 +273,11 @@ export const IOSHeader: React.FC<IOSHeaderProps> = ({
                 }}
               >
                 <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--glass-border)' }}>
-                  <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>{displayName}</p>
+                  <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    {isGuest ? (language === 'zh' ? '本地访客模式 (IndexedDB)' : 'Guest Mode (IndexedDB)') : displayName}
+                  </p>
                   <p style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {user?.email}
+                    {isGuest ? (language === 'zh' ? '会议记录安全存放在浏览器中' : '100% private local storage') : user?.email}
                   </p>
                 </div>
                 <button
@@ -289,7 +294,7 @@ export const IOSHeader: React.FC<IOSHeaderProps> = ({
                     borderRadius: '10px',
                     background: 'transparent',
                     border: 'none',
-                    color: 'var(--accent-rose)',
+                    color: isGuest ? '#818cf8' : 'var(--accent-rose)',
                     fontSize: '12.5px',
                     fontWeight: 600,
                     cursor: 'pointer',
@@ -297,7 +302,7 @@ export const IOSHeader: React.FC<IOSHeaderProps> = ({
                   }}
                 >
                   <LogOut size={14} />
-                  {t.header.signOut}
+                  {isGuest ? (language === 'zh' ? '登录 / 注册以跨设备同步' : 'Sign In to Sync Across Devices') : t.header.signOut}
                 </button>
               </div>
             )}

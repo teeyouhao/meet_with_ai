@@ -1,12 +1,15 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
+export type DominantSpeaker = 'host' | 'remote' | 'mixed' | 'idle';
+
 export interface UseAudioRecorderOptions {
   /**
    * Callback fired every ~chunkIntervalMs with a standalone, header-intact audio slice.
    * Transcribing these 10s chunks directly with Whisper enables reliable real-time
    * dictation across all devices (including iOS Safari and meeting/YouTube audio).
+   * Now includes dominantSpeaker tag determined via hardware stereo energy detection!
    */
-  onChunkReady?: (blob: Blob) => void | Promise<void>;
+  onChunkReady?: (blob: Blob, speaker?: DominantSpeaker) => void | Promise<void>;
   /**
    * Interval duration in milliseconds for audio chunks. Defaults to 10,000ms (~10 seconds).
    * 10 seconds is the sweet spot: gentle on API rate limits (~6 requests/min) and high Whisper accuracy.
@@ -20,6 +23,10 @@ export interface UseAudioRecorderReturn {
   audioBlob: Blob | null;
   audioUrl: string | null;
   audioLevel: number;
+  micLevel: number;
+  tabLevel: number;
+  activeSpeaker: DominantSpeaker;
+  isStereoSeparated: boolean;
   captureMode: 'mic' | 'system';
   startRecording: (mode?: 'mic' | 'system') => Promise<void>;
   stopRecording: () => void;
@@ -32,6 +39,10 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [micLevel, setMicLevel] = useState(0);
+  const [tabLevel, setTabLevel] = useState(0);
+  const [activeSpeaker, setActiveSpeaker] = useState<DominantSpeaker>('idle');
+  const [isStereoSeparated, setIsStereoSeparated] = useState(false);
   const [captureMode, setCaptureMode] = useState<'mic' | 'system'>('mic');
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -40,6 +51,8 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const micAnalyserRef = useRef<AnalyserNode | null>(null);
+  const tabAnalyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
   const displayStreamRef = useRef<MediaStream | null>(null);
@@ -54,6 +67,11 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
   onChunkReadyRef.current = options?.onChunkReady;
   const chunkIntervalMs = options?.chunkIntervalMs ?? 10000;
 
+  // Energy accumulators for dominant speaker detection per 10s slice
+  const sliceMicEnergyRef = useRef(0);
+  const sliceTabEnergyRef = useRef(0);
+  const sliceSampleCountRef = useRef(0);
+
   const cleanupAudioAnalysis = useCallback(() => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -63,7 +81,16 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
       audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
+    if (micAnalyserRef.current) micAnalyserRef.current = null;
+    if (tabAnalyserRef.current) tabAnalyserRef.current = null;
+    sliceMicEnergyRef.current = 0;
+    sliceTabEnergyRef.current = 0;
+    sliceSampleCountRef.current = 0;
     setAudioLevel(0);
+    setMicLevel(0);
+    setTabLevel(0);
+    setActiveSpeaker('idle');
+    setIsStereoSeparated(false);
   }, []);
 
   const startAnalysis = useCallback((stream: MediaStream) => {
@@ -82,12 +109,45 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
       analyserRef.current = analyser;
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const micArray = micAnalyserRef.current ? new Uint8Array(micAnalyserRef.current.frequencyBinCount) : null;
+      const tabArray = tabAnalyserRef.current ? new Uint8Array(tabAnalyserRef.current.frequencyBinCount) : null;
+
       const updateLevel = () => {
         if (!analyserRef.current) return;
         analyserRef.current.getByteFrequencyData(dataArray);
         const sum = dataArray.reduce((acc, val) => acc + val, 0);
         const avg = sum / dataArray.length;
         setAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+
+        // Real-time stereo channel energy monitoring
+        if (micAnalyserRef.current && tabAnalyserRef.current && micArray && tabArray) {
+          micAnalyserRef.current.getByteFrequencyData(micArray);
+          tabAnalyserRef.current.getByteFrequencyData(tabArray);
+
+          const curMicAvg = micArray.reduce((a, b) => a + b, 0) / micArray.length;
+          const curTabAvg = tabArray.reduce((a, b) => a + b, 0) / tabArray.length;
+
+          setMicLevel(Math.min(100, Math.round((curMicAvg / 128) * 100)));
+          setTabLevel(Math.min(100, Math.round((curTabAvg / 128) * 100)));
+
+          // Accumulate energy across 10-second slice
+          sliceMicEnergyRef.current += curMicAvg;
+          sliceTabEnergyRef.current += curTabAvg;
+          sliceSampleCountRef.current += 1;
+
+          // Instantaneous speaker threshold
+          const threshold = 8;
+          if (curMicAvg > threshold && curMicAvg > curTabAvg * 1.35) {
+            setActiveSpeaker('host');
+          } else if (curTabAvg > threshold && curTabAvg > curMicAvg * 1.35) {
+            setActiveSpeaker('remote');
+          } else if (curMicAvg > threshold && curTabAvg > threshold) {
+            setActiveSpeaker('mixed');
+          } else {
+            setActiveSpeaker('idle');
+          }
+        }
+
         animationFrameRef.current = requestAnimationFrame(updateLevel);
       };
       updateLevel();
@@ -114,6 +174,24 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
     const prevRecorder = sliceRecorderRef.current;
     sliceRecorderRef.current = nextRecorder;
 
+    const count = sliceSampleCountRef.current || 1;
+    const avgMic = sliceMicEnergyRef.current / count;
+    const avgTab = sliceTabEnergyRef.current / count;
+
+    let sliceDominant: DominantSpeaker = 'idle';
+    if (avgMic > 6 && avgMic > avgTab * 1.3) {
+      sliceDominant = 'host';
+    } else if (avgTab > 6 && avgTab > avgMic * 1.3) {
+      sliceDominant = 'remote';
+    } else if (avgMic > 6 && avgTab > 6) {
+      sliceDominant = 'mixed';
+    }
+
+    // Reset slice accumulators for the upcoming slice
+    sliceMicEnergyRef.current = 0;
+    sliceTabEnergyRef.current = 0;
+    sliceSampleCountRef.current = 0;
+
     nextRecorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) {
         sliceChunks.push(e.data);
@@ -127,7 +205,7 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
         });
         // Whisper requires ~2KB minimum to contain audible speech
         if (sliceBlob.size >= 2048 && onChunkReadyRef.current) {
-          onChunkReadyRef.current(sliceBlob);
+          onChunkReadyRef.current(sliceBlob, sliceDominant);
         }
       }
     };
@@ -248,16 +326,40 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
             const mixContext = new AudioCtx();
             mixAudioContextRef.current = mixContext;
             const destination = mixContext.createMediaStreamDestination();
+            destination.channelCount = 2; // Stereo destination
+
+            // Create 2-channel merger (Channel 0 = Left / Mic, Channel 1 = Right / Tab)
+            const merger = mixContext.createChannelMerger(2);
 
             const tabSource = mixContext.createMediaStreamSource(new MediaStream(audioTracks));
             const micSource = mixContext.createMediaStreamSource(micStream);
-            tabSource.connect(destination);
-            micSource.connect(destination);
+
+            // Create separate Analysers for Mic and Tab to monitor vocal energy
+            const micAnalyser = mixContext.createAnalyser();
+            micAnalyser.fftSize = 64;
+            micSource.connect(micAnalyser);
+            micAnalyserRef.current = micAnalyser;
+
+            const tabAnalyser = mixContext.createAnalyser();
+            tabAnalyser.fftSize = 64;
+            tabSource.connect(tabAnalyser);
+            tabAnalyserRef.current = tabAnalyser;
+
+            // Route mic (Host) to Channel 0 (LEFT)
+            micSource.connect(merger, 0, 0);
+
+            // Route tab (Remote attendees) to Channel 1 (RIGHT)
+            tabSource.connect(merger, 0, 1);
+
+            // Connect stereo merger to destination
+            merger.connect(destination);
 
             audioStreamToRecord = destination.stream;
+            setIsStereoSeparated(true);
           } catch {
             // If mic access denied or busy, capture tab audio alone
             audioStreamToRecord = new MediaStream(audioTracks);
+            setIsStereoSeparated(false);
           }
         } else {
           // Graceful fallback to microphone if user didn't check audio share
@@ -411,6 +513,10 @@ export function useAudioRecorder(options?: UseAudioRecorderOptions): UseAudioRec
     audioBlob,
     audioUrl,
     audioLevel,
+    micLevel,
+    tabLevel,
+    activeSpeaker,
+    isStereoSeparated,
     captureMode,
     startRecording,
     stopRecording,

@@ -1,6 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
-import { getStoredUser, getAuthToken } from './auth';
+import { getStoredUser, getAuthToken, isGuestUser } from './auth';
 import { indexAllMeetings } from './memory';
+import {
+  getGuestMeetings,
+  saveGuestMeeting,
+  deleteGuestMeeting,
+  updateGuestMeetingTitle,
+  updateGuestMeetingActionItems,
+  getGuestActionItems,
+  getGuestInsightTasks,
+  createGuestInsightTask,
+  updateGuestInsightTaskStatus,
+  deleteGuestInsightTask
+} from './indexedDb';
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:5000' : '')).replace(/\/$/, '');
 
@@ -58,6 +70,10 @@ export interface ActionItemRecord {
 
 // Fetch meetings for current session
 export async function fetchMeetings(): Promise<MeetingRecord[]> {
+  if (isGuestUser()) {
+    return await getGuestMeetings();
+  }
+
   try {
     const res = await fetch(`${API_BASE}/api/meetings`, {
       headers: getAuthHeaders(),
@@ -100,6 +116,10 @@ function safeParseDate(val?: string): string | null {
 
 // Save meeting and action items
 export async function saveMeetingWithItems(meeting: Partial<MeetingRecord>, actionItems?: ActionItemInput[]): Promise<MeetingRecord | null> {
+  if (isGuestUser()) {
+    return await saveGuestMeeting(meeting, actionItems);
+  }
+
   const user = getStoredUser();
 
   try {
@@ -172,6 +192,10 @@ export async function saveMeetingWithItems(meeting: Partial<MeetingRecord>, acti
 
 /** Delete a meeting and its associated audio file from storage */
 export async function deleteMeeting(meetingId: string, audioUrl?: string): Promise<boolean> {
+  if (isGuestUser()) {
+    return await deleteGuestMeeting(meetingId);
+  }
+
   // Remove audio from storage if present
   if (audioUrl) {
     try {
@@ -212,6 +236,10 @@ export async function deleteMeeting(meetingId: string, audioUrl?: string): Promi
 export async function updateMeetingTitle(meetingId: string, newTitle: string): Promise<boolean> {
   const trimmedTitle = newTitle.trim();
   if (!trimmedTitle) return false;
+
+  if (isGuestUser()) {
+    return await updateGuestMeetingTitle(meetingId, trimmedTitle);
+  }
 
   try {
     const res = await fetch(`${API_BASE}/api/meetings/${meetingId}/title`, {
@@ -297,6 +325,16 @@ export async function updateMeetingActionItems(
   actionItems: Array<{ task: string; assignee?: string; due_date?: string; status?: 'pending' | 'completed' }>,
   existingSummary?: MeetingRecord['summary']
 ): Promise<boolean> {
+  if (isGuestUser()) {
+    const normalized = actionItems.map((item) => ({
+      task: item.task,
+      assignee: item.assignee || 'Unassigned',
+      due_date: item.due_date,
+      status: item.status
+    }));
+    return await updateGuestMeetingActionItems(meetingId, normalized);
+  }
+
   try {
     // 1. Resolve current summary
     let summaryToUpdate = existingSummary;
@@ -368,6 +406,10 @@ export async function updateMeetingActionItems(
 
 /** Fetch action items for a specific meeting */
 export async function fetchActionItems(meetingId: string): Promise<ActionItemRecord[]> {
+  if (isGuestUser()) {
+    return await getGuestActionItems(meetingId);
+  }
+
   const { data, error } = await supabase
     .from('action_items')
     .select('*')
@@ -383,6 +425,10 @@ export async function fetchActionItems(meetingId: string): Promise<ActionItemRec
 
 /** Fetch all action items across meetings */
 export async function fetchAllActionItems(): Promise<ActionItemRecord[]> {
+  if (isGuestUser()) {
+    return await getGuestActionItems();
+  }
+
   try {
     const res = await fetch(`${API_BASE}/api/meetings/action-items`, {
       headers: getAuthHeaders(),
@@ -474,6 +520,10 @@ const LOCAL_STORAGE_INSIGHT_TASKS_KEY = 'meetwithai_insight_tasks';
 
 /** Fetch dedicated tasks for the Insight dashboard */
 export async function fetchInsightTasks(): Promise<InsightTaskRecord[]> {
+  if (isGuestUser()) {
+    return await getGuestInsightTasks();
+  }
+
   try {
     const { data, error } = await supabase
       .from('insight_tasks')
@@ -506,6 +556,10 @@ export async function createInsightTask(
   assignee?: string,
   dueDate?: string
 ): Promise<InsightTaskRecord | null> {
+  if (isGuestUser()) {
+    return await createGuestInsightTask({ task, assignee, due_date: dueDate });
+  }
+
   const user = getStoredUser();
 
   const formattedDueDate = dueDate ? safeParseDate(dueDate) : undefined;
@@ -558,6 +612,10 @@ export async function updateInsightTaskStatus(
   id: string,
   status: 'pending' | 'completed'
 ): Promise<boolean> {
+  if (isGuestUser()) {
+    return await updateGuestInsightTaskStatus(id, status);
+  }
+
   // Update Supabase if table exists
   if (!id.startsWith('local-')) {
     try {
@@ -588,6 +646,10 @@ export async function updateInsightTaskStatus(
 
 /** Delete an Insight task */
 export async function deleteInsightTask(id: string): Promise<boolean> {
+  if (isGuestUser()) {
+    return await deleteGuestInsightTask(id);
+  }
+
   if (!id.startsWith('local-')) {
     try {
       const { error } = await supabase

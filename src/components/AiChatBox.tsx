@@ -153,21 +153,11 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
         )}
       </button>
 
-      {/* ── Small Floating Chat Window (Gemini Copilot style) ── */}
+      {/* ── Small Floating Chat Window (100% Solid Color Background) ── */}
       {isOpen && (
         <div className="floating-chat-popup">
-          {/* Header */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '12px 16px',
-              borderBottom: '1px solid var(--glass-border)',
-              background: 'linear-gradient(135deg, rgba(66, 133, 244, 0.15) 0%, rgba(155, 114, 203, 0.14) 50%, rgba(217, 101, 112, 0.12) 100%)',
-              userSelect: 'none'
-            }}
-          >
+          {/* Solid Header */}
+          <div className="chat-popup-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
               <div
                 style={{
@@ -250,17 +240,8 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
             </div>
           </div>
 
-          {/* Messages Body */}
-          <div
-            style={{
-              flex: 1,
-              overflowY: 'auto',
-              padding: '14px 14px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px'
-            }}
-          >
+          {/* Solid Messages Body */}
+          <div className="chat-popup-body">
             {messages.length === 0 && (
               <div style={{ textAlign: 'center', padding: '24px 8px 12px', color: 'var(--text-muted)' }}>
                 <div
@@ -296,17 +277,7 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                       type="button"
                       onClick={() => handleSend(prompt)}
                       disabled={isLoading}
-                      style={{
-                        fontSize: '11.5px',
-                        padding: '7px 10px',
-                        borderRadius: '10px',
-                        background: 'var(--glass-surface-subtle)',
-                        border: '1px solid var(--glass-border)',
-                        color: 'var(--text-secondary)',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        transition: 'all 0.15s ease'
-                      }}
+                      className="chat-quick-prompt-btn"
                     >
                       💡 {prompt}
                     </button>
@@ -347,22 +318,7 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                     </div>
                   )}
 
-                  <div
-                    style={{
-                      padding: '9px 13px',
-                      borderRadius: isUser ? '14px 14px 3px 14px' : '14px 14px 14px 3px',
-                      background: isUser
-                        ? 'linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-purple) 100%)'
-                        : 'var(--glass-surface-subtle)',
-                      border: isUser ? 'none' : '1px solid var(--glass-border)',
-                      color: isUser ? '#ffffff' : 'var(--text-primary)',
-                      fontSize: '12.5px',
-                      lineHeight: 1.55,
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      boxShadow: isUser ? '0 4px 12px var(--accent-primary-glow)' : 'none'
-                    }}
-                  >
+                  <div className={isUser ? 'chat-bubble-user' : 'chat-bubble-assistant'}>
                     {msg.content}
                   </div>
 
@@ -450,19 +406,9 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Context References Citations */}
+          {/* Solid Citations Bar */}
           {citations.length > 0 && (
-            <div
-              style={{
-                padding: '6px 14px',
-                borderTop: '1px solid var(--border-subtle)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                flexWrap: 'wrap',
-                background: 'rgba(0, 0, 0, 0.12)'
-              }}
-            >
+            <div className="chat-popup-citations">
               <Quote size={11} color="var(--accent-primary)" />
               <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
                 {language === 'zh' ? '引用来源:' : 'Sources:'}
@@ -472,9 +418,9 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                   key={i}
                   style={{
                     fontSize: '10px',
-                    padding: '1px 7px',
+                    padding: '2px 8px',
                     borderRadius: '8px',
-                    background: 'rgba(99, 102, 241, 0.14)',
+                    background: 'rgba(99, 102, 241, 0.15)',
                     color: 'var(--accent-primary)',
                     border: '1px solid rgba(99, 102, 241, 0.25)',
                     maxWidth: '120px',
@@ -490,14 +436,8 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
             </div>
           )}
 
-          {/* Input Bar */}
-          <div
-            style={{
-              padding: '10px 12px',
-              borderTop: '1px solid var(--glass-border)',
-              background: 'rgba(0, 0, 0, 0.18)'
-            }}
-          >
+          {/* Solid Input Footer */}
+          <div className="chat-popup-footer">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -516,23 +456,15 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                     : (language === 'zh' ? '输入问题或检索记忆…' : 'Ask about past meetings…')
                 }
                 disabled={isLoading}
-                className="search-input"
-                style={{
-                  flex: 1,
-                  height: '36px',
-                  borderRadius: '12px',
-                  padding: '0 12px',
-                  fontSize: '12.5px',
-                  background: 'var(--input-bg)'
-                }}
+                className="chat-popup-input"
               />
               <button
                 type="submit"
                 disabled={isLoading || !input.trim()}
                 className="btn-primary"
                 style={{
-                  width: '36px',
-                  height: '36px',
+                  width: '38px',
+                  height: '38px',
                   borderRadius: '12px',
                   padding: 0,
                   display: 'flex',
@@ -542,7 +474,7 @@ export const AiChatBox: React.FC<AiChatBoxProps> = ({
                 }}
                 title="Send"
               >
-                <Send size={14} />
+                <Send size={15} />
               </button>
             </form>
           </div>

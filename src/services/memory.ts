@@ -104,18 +104,100 @@ export async function chatWithAi(
   meetingId?: string,
   history?: ChatMessage[]
 ): Promise<ChatResponse> {
+  const clientGroqKey = (
+    localStorage.getItem('groq_api_key') ||
+    import.meta.env.VITE_GROQ_API_KEY ||
+    ''
+  ).trim();
+
   try {
     const res = await fetch(`${API_BASE}/api/memory/chat`, {
       method: 'POST',
       headers: getHeaders(),
       credentials: 'include',
-      body: JSON.stringify({ message, meetingId, history })
+      body: JSON.stringify({
+        message,
+        meetingId,
+        history,
+        groqApiKey: clientGroqKey || undefined
+      })
     });
-    if (!res.ok) throw new Error(await res.text());
-    return await res.json();
-  } catch (err: any) {
-    return {
-      reply: 'Failed to contact AI service: ' + (err.message || 'Network error')
-    };
+
+    if (res.ok) {
+      const data = await res.json();
+      // If server responded with key missing prompt and we have a client key, fallback to direct client call
+      if (
+        data.reply &&
+        data.reply.includes('GROQ_API_KEY is not configured on the server') &&
+        clientGroqKey
+      ) {
+        return await callGroqClientDirect(clientGroqKey, message, history, data.citations);
+      }
+      return data;
+    }
+  } catch (err) {
+    console.warn('[MemoryService] Server chat error, attempting direct client fallback:', err);
   }
+
+  // Fallback: If server is offline or errored, and client has Groq API key
+  if (clientGroqKey) {
+    return await callGroqClientDirect(clientGroqKey, message, history);
+  }
+
+  return {
+    reply:
+      'Groq AI is ready, but GROQ_API_KEY is not configured on the server. Please add GROQ_API_KEY in your Vercel Project Settings > Environment Variables, or enter your Groq API Key in Settings.'
+  };
+}
+
+/** Direct browser fallback to Groq AI if backend environment variable is absent */
+async function callGroqClientDirect(
+  apiKey: string,
+  message: string,
+  history?: ChatMessage[],
+  citations?: Array<{ title: string; text: string }>
+): Promise<ChatResponse> {
+  const models = ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b'];
+  const conversationMessages = [
+    {
+      role: 'system',
+      content:
+        'You are MeetWithAI Executive Assistant. Answer user questions clearly, accurately, and insightfully. If asked in Chinese, respond in Chinese. If in English, respond in English.'
+    },
+    ...((Array.isArray(history) ? history : []).slice(-6)),
+    { role: 'user', content: message }
+  ];
+
+  for (const model of models) {
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          messages: conversationMessages,
+          temperature: 0.3,
+          max_tokens: 1024
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const reply = data.choices?.[0]?.message?.content;
+        if (reply) {
+          return { reply, citations };
+        }
+      }
+    } catch (e) {
+      console.warn(`[Client Groq] Model ${model} failed:`, e);
+    }
+  }
+
+  return {
+    reply: 'Could not connect to Groq AI. Please check your Groq API key and network connection.',
+    citations
+  };
 }
